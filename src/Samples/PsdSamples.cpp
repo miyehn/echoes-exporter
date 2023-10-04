@@ -212,9 +212,13 @@ namespace
 // ---------------------------------------------------------------------------------------------------------------------
 static std::wstring GetSampleInputPath(void)
 {
+	std::string s(PROJECT_DIR);
+	s += "/bin/";
+	std::wstring ws(s.c_str(), s.c_str() + s.length());
+	return ws;
 	// TODO: add support for other platforms
 //#ifdef _WIN32
-	return L"../../bin/";
+	//return L"../../bin/";
 //#endif
 }
 
@@ -223,9 +227,13 @@ static std::wstring GetSampleInputPath(void)
 // ---------------------------------------------------------------------------------------------------------------------
 static std::wstring GetSampleOutputPath(void)
 {
+	std::string s(PROJECT_DIR);
+	s += "/bin/";
+	std::wstring ws(s.c_str(), s.c_str() + s.length());
+	return ws;
 	// TODO: add support for other platforms
 //#ifdef _WIN32
-	return L"../../bin/";
+	//return L"../../bin/";
 //#endif
 }
 
