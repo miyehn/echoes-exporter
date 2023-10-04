@@ -18,7 +18,7 @@ void TestWritePng(const std::string& outDir) {
 		std::string fullpath = outDir + "/test.png";
 		EXPECT(stbi_write_png(fullpath.c_str(), 256, 256, 4, test_data.data(), 4 * 256) != 0, true)
 	} else {
-		LOG("failed to create dir")
+		ERR("failed to create dir")
 	}
 }
 

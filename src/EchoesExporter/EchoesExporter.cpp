@@ -19,6 +19,7 @@
 #include "../Psd/PsdInterleave.h"
 #include "../Psd/PsdChannelType.h"
 #include "../Psd/PsdLayerType.h"
+#include "../Psd/PsdBlendMode.h"
 
 #include "AssetPack.h"
 
@@ -120,9 +121,60 @@ T* CreateInterleavedImage(Allocator* allocator, const void* srcR, const void* sr
 
 	return image;
 }
+
+// a few more helpers
+
+std::string GetName(const Layer* layer) {
+	std::string name(layer->name.c_str());
+	return name;
 }
 
+std::vector<std::string> SplitTokens(const std::string& s) {
+	std::vector<std::string> tokens;
+	std::string cur = "";
+	for (int pos = 0; pos < s.length(); pos++) {
+		if (s[pos] == ' ') {
+			if (cur.length() > 0) tokens.push_back(cur);
+			cur = "";
+		} else {
+			cur += s[pos];
+		}
+	}
+	if (cur.length() > 0) tokens.push_back(cur);
+	return tokens;
+}
 
+uint8_t* GetLayerData(const Document* document, File* file, Allocator &allocator, Layer* layer) {
+	const unsigned int indexR = FindChannel(layer, channelType::R);
+	const unsigned int indexG = FindChannel(layer, channelType::G);
+	const unsigned int indexB = FindChannel(layer, channelType::B);
+	const unsigned int indexA = FindChannel(layer, channelType::TRANSPARENCY_MASK);
+	const bool allChannelsFound =
+		indexR!=CHANNEL_NOT_FOUND &&
+		indexG!=CHANNEL_NOT_FOUND &&
+		indexB!=CHANNEL_NOT_FOUND &&
+		indexA!=CHANNEL_NOT_FOUND;
+
+	if (!allChannelsFound) {
+		ERR("some layer channels were not found!")
+		return nullptr;
+	}
+
+	void* canvasData[4] = {
+		ExpandChannelToCanvas(document, &allocator, layer, &layer->channels[indexR]),
+		ExpandChannelToCanvas(document, &allocator, layer, &layer->channels[indexG]),
+		ExpandChannelToCanvas(document, &allocator, layer, &layer->channels[indexB]),
+		ExpandChannelToCanvas(document, &allocator, layer, &layer->channels[indexA]),
+	};
+	uint8_t* layerData = CreateInterleavedImage<uint8_t>(
+		&allocator, canvasData[0], canvasData[1], canvasData[2], canvasData[3], document->width, document->height);
+	allocator.Free(canvasData[0]);
+	allocator.Free(canvasData[1]);
+	allocator.Free(canvasData[2]);
+	allocator.Free(canvasData[3]);
+	return layerData;
+}
+}
 
 bool ReadDocument(const std::string& inFile, AssetPack& assetPack) {
 
@@ -166,47 +218,111 @@ bool ReadDocument(const std::string& inFile, AssetPack& assetPack) {
 		return false;
 	}
 
-	// layers
+	////////////////////////////////////////////////////////////////
+	// start building the asset pack by iterating through layers
+
+	// metadata
+	assetPack.docWidth = document->width;
+	assetPack.docHeight = document->height;
+
+	// layers first pass
+	for (int i = 0; i < section->layerCount; i++) {
+		psd::Layer* layer = &section->layers[i];
+		// info layers:
+		if (layer->parent != nullptr && GetName(layer->parent)=="info") {
+			if (GetName(layer) == "origin") {
+				assetPack.docOriginPx = {
+					(layer->right + layer->left) * 0.5f,
+					(layer->bottom + layer->top) * 0.5f
+				};
+			} else {
+				auto tokens = SplitTokens(GetName(layer));
+				if (tokens.size() == 2 && tokens[0] == "ruler") {
+					assetPack.pixelsPerDiagonalUnit = (layer->right - layer->left) / std::stof(tokens[1]);
+				}
+			}
+		}
+		// export layers: just create something empty and insert into dict for now
+		else if (
+			layer->isVisible &&
+			(layer->type == layerType::OPEN_FOLDER || layer->type == layerType::CLOSED_FOLDER) &&
+			layer->parent != nullptr &&
+			GetName(layer->parent)=="export")
+		{
+			auto name = GetName(layer);
+			assetPack.spriteSets[name] = SpriteSet();
+			if (layer->layerMask) WARN("folder for sprite '%s' has a layer mask, which will be ignored during export..", name.c_str())
+		}
+	}
+
+	// layers second pass: parse data
+	uint32_t prevLayerType = 666; // an arbitrary invalid layer type
 	for (int i = 0; i < section->layerCount; i++) {
 		psd::Layer* layer = &section->layers[i];
 		psd::ExtractLayer(document, &file, &allocator, layer);
 
-		if (layer->type == layerType::ANY) {
-			const unsigned int indexR = FindChannel(layer, channelType::R);
-			const unsigned int indexG = FindChannel(layer, channelType::G);
-			const unsigned int indexB = FindChannel(layer, channelType::B);
-			const unsigned int indexA = FindChannel(layer, channelType::TRANSPARENCY_MASK);
-			const bool allChannelsFound =
-				indexR!=CHANNEL_NOT_FOUND &&
-				indexG!=CHANNEL_NOT_FOUND &&
-				indexB!=CHANNEL_NOT_FOUND &&
-				indexA!=CHANNEL_NOT_FOUND;
+		// now we only care about layers inside visible folders inside "export":
+		if (layer->type == layerType::ANY &&
+			layer->parent != nullptr &&
+			(layer->parent->type == layerType::OPEN_FOLDER || layer->parent->type == layerType::CLOSED_FOLDER) &&
+			layer->parent->isVisible &&
+			layer->parent->parent != nullptr &&
+			GetName(layer->parent->parent) == "export"
+		) {
+			uint32_t dataSize = document->width * document->height * 4;
+			uint8_t* data = GetLayerData(document, &file, allocator, layer);
+			if (!data) {
+				file.Close(); return false;
+			}
+			std::string name = GetName(layer->parent);
+			SpriteSet& spriteSet = assetPack.spriteSets[name];
+			spriteSet.name = name;
 
-			if (!allChannelsFound) {
-				ERR("some layer channels were not found!")
-				file.Close();
-				return false;
+			if (prevLayerType == layerType::SECTION_DIVIDER) {
+				// base layer?
+				if (layer->layerMask) WARN("base layer of '%s' has a layer mask, which will be ignored during export..", name.c_str())
+				if (blendMode::KeyToEnum(layer->blendModeKey) != blendMode::NORMAL) {
+					WARN("base layer of '%s' doesn't have normal blend mode- result might look different.", name.c_str())
+				}
+
+				// base layer data
+				spriteSet.baseLayerData.resize(dataSize);
+				memcpy(spriteSet.baseLayerData.data(), data, dataSize);
+
+				// pixel dims
+				int minX = std::max(0, layer->left);
+				int minY = std::max(0, layer->top);
+				int maxX = std::min((int)document->width, layer->right);
+				int maxY = std::min((int)document->height, layer->bottom);
+				spriteSet.minPx = { minX, minY };
+				spriteSet.sizePx = { maxX-minX, maxY-minY };
+
+				// unit dims
+				auto tokens = SplitTokens(GetName(layer));
+				if (tokens.size() != 4) {
+					ERR("base layer of '%s' has incorrect name format! quitting..", name.c_str())
+					file.Close(); return false;
+				}
+				spriteSet.minUnit = {std::stof(tokens[0]), std::stof(tokens[1])};
+				spriteSet.sizeUnit = {std::stof(tokens[2]), std::stof(tokens[3])};
+
+			} else {
+				// light layer?
+				if (blendMode::KeyToEnum(layer->blendModeKey) != blendMode::LINEAR_DODGE) {
+					WARN("a light layer of '%s' doesn't have linear dodge (additive) blend mode- result might look different.", name.c_str())
+				}
+				// light layer data
+				spriteSet.lightLayersData.emplace_back(dataSize);
+				memcpy(spriteSet.lightLayersData.back().data(), data, dataSize);
 			}
 
-			void* canvasData[4] = {
-				ExpandChannelToCanvas(document, &allocator, layer, &layer->channels[indexR]),
-				ExpandChannelToCanvas(document, &allocator, layer, &layer->channels[indexG]),
-				ExpandChannelToCanvas(document, &allocator, layer, &layer->channels[indexB]),
-				ExpandChannelToCanvas(document, &allocator, layer, &layer->channels[indexA]),
-			};
-			uint8_t* layerData = CreateInterleavedImage<uint8_t>(
-				&allocator, canvasData[0], canvasData[1], canvasData[2], canvasData[3], document->width, document->height);
-			allocator.Free(canvasData[0]);
-			allocator.Free(canvasData[1]);
-			allocator.Free(canvasData[2]);
-			allocator.Free(canvasData[3]);
-
-			allocator.Free(layerData);
+			allocator.Free(data);
 		}
+		prevLayerType = layer->type;
 	}
 
 	file.Close();
-	return section;
+	return true;
 }
 
 
@@ -234,12 +350,15 @@ int main(int argc, const char* argv[]) {
 
 	//////////////////////////////////////////////////
 
+#if 1
 	AssetPack assetPack;
 	if (!ReadDocument(inFile, assetPack)) {
 		return 1;
 	}
 
 	ExportAssetPack(assetPack, outDir);
+
+#endif
 
 	LOG("done.")
 	return 0;

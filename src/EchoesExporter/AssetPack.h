@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <unordered_map>
 #include <string>
 
 struct ivec2 {
@@ -15,8 +16,8 @@ struct vec2 {
 
 struct SpriteSet {
 	std::string name;
-	uint8_t* baseLayerData;
-	std::vector<uint8_t*> lightLayersData;
+	std::vector<uint8_t> baseLayerData;
+	std::vector<std::vector<uint8_t>> lightLayersData;
 	// rel to doc canvas, in pixels
 	ivec2 minPx;
 	ivec2 sizePx;
@@ -26,10 +27,10 @@ struct SpriteSet {
 };
 
 struct AssetPack {
-	std::vector<SpriteSet> spriteSets;
+	std::unordered_map<std::string, SpriteSet> spriteSets;
 	vec2 docOriginPx;
-	int docWidth, docHeight;
-	float pixelsPerDiagonalUnit;
+	uint32_t docWidth, docHeight;
+	float pixelsPerDiagonalUnit; // sqrt(2) = 1.41421356237
 };
 
 bool ExportAssetPack(const AssetPack& assetPack, const std::string& outDir);
