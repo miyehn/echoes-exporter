@@ -6,6 +6,7 @@
 # miyehn
 .idea/
 cmake-build-debug/
+cmake-build-release/
 
 # User-specific files
 *.rsuser

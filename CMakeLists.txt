@@ -13,3 +13,4 @@ add_definitions(-DPROJECT_DIR="${CMAKE_SOURCE_DIR}")
 
 add_subdirectory(src/Psd)
 add_subdirectory(src/Samples)
+add_subdirectory(src/EchoesExporter)

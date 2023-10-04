@@ -1,0 +1,23 @@
+# CMake build for psd_sdk samples
+# Copyright 2023, heavenstone <heavenstone1308@gmail.com>
+# See LICENSE.txt for licensing details (2-clause BSD License: https://opensource.org/licenses/BSD-2-Clause)
+
+cmake_minimum_required(VERSION 3.2)
+
+project(EchoesExporter)
+
+include_directories(../External)
+
+add_definitions(-DWINOS)
+
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG=1")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DDEBUG=0")
+
+set(echoesexporter_source
+    EchoesExporter.cpp
+    ../External/stb_image_write_impl.cpp
+)
+
+add_executable(${PROJECT_NAME} ${echoesexporter_source})
+
+target_link_libraries(${PROJECT_NAME} Psd)
