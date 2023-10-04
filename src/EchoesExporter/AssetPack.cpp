@@ -4,6 +4,31 @@
 #include "AssetPack.h"
 #include "Log.h"
 
+std::vector<std::string> SplitTokens(const std::string& s) {
+	std::vector<std::string> tokens;
+	std::string cur;
+	for (char c : s) {
+		if (c == ' ') {
+			if (cur.length() > 0) tokens.push_back(cur);
+			cur = "";
+		} else {
+			cur += c;
+		}
+	}
+	if (cur.length() > 0) tokens.push_back(cur);
+	return tokens;
+}
+
+std::string JoinTokens(const std::vector<std::string> &tokens) {
+	std::string result;
+	for (auto token : tokens) {
+		ASSERT(token.length() > 0)
+		token[0] = (char)toupper(token[0]);
+		result += token;
+	}
+	return result;
+}
+
 void WritePngToDirectory(
 	const std::vector<uint8_t>& data,
 	uint32_t width, uint32_t height,
@@ -50,13 +75,19 @@ bool ExportAssetPack(const AssetPack& assetPack, const std::string& outDir) {
 
 	for (auto& pair : assetPack.spriteSets) {
 		const SpriteSet& sprite = pair.second;
-		auto baseRegionData = Crop(sprite.baseLayerData, assetPack.docWidth * 4, sprite.minPx, sprite.sizePx);
-		WritePngToDirectory(baseRegionData, sprite.sizePx.x, sprite.sizePx.y, outDir, sprite.name+"_base.png", resizeRatio);
+		std::string baseName = JoinTokens(SplitTokens(sprite.name));
+
+		for (int i = 0; i < sprite.baseLayersData.size(); i++) {
+			auto baseRegionData = Crop(sprite.baseLayersData[i], assetPack.docWidth * 4, sprite.minPx, sprite.sizePx);
+			WritePngToDirectory(
+				baseRegionData, sprite.sizePx.x, sprite.sizePx.y, outDir,
+				baseName+"_part"+std::to_string(i)+"_base.png", resizeRatio);
+		}
 		for (int i = 0; i < sprite.lightLayersData.size(); i++) {
 			auto lightTexRegionData = Crop(sprite.lightLayersData[i], assetPack.docWidth * 4, sprite.minPx, sprite.sizePx);
 			WritePngToDirectory(
 				lightTexRegionData, sprite.sizePx.x, sprite.sizePx.y, outDir,
-				sprite.name+"_L" + std::to_string(i) +".png", resizeRatio);
+				baseName+"_L" + std::to_string(i) +".png", resizeRatio);
 		}
 	}
 	return true;

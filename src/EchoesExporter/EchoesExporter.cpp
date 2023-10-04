@@ -129,21 +129,6 @@ std::string GetName(const Layer* layer) {
 	return name;
 }
 
-std::vector<std::string> SplitTokens(const std::string& s) {
-	std::vector<std::string> tokens;
-	std::string cur = "";
-	for (int pos = 0; pos < s.length(); pos++) {
-		if (s[pos] == ' ') {
-			if (cur.length() > 0) tokens.push_back(cur);
-			cur = "";
-		} else {
-			cur += s[pos];
-		}
-	}
-	if (cur.length() > 0) tokens.push_back(cur);
-	return tokens;
-}
-
 uint8_t* GetLayerData(const Document* document, File* file, Allocator &allocator, Layer* layer) {
 	const unsigned int indexR = FindChannel(layer, channelType::R);
 	const unsigned int indexG = FindChannel(layer, channelType::G);
@@ -174,6 +159,25 @@ uint8_t* GetLayerData(const Document* document, File* file, Allocator &allocator
 	allocator.Free(canvasData[3]);
 	return layerData;
 }
+}
+
+bool IsBaseOrLightLayer(const Layer* layer) {
+	return
+	(layer->type == layerType::ANY || layer->type == layerType::OPEN_FOLDER || layer->type == layerType::CLOSED_FOLDER) &&
+	layer->parent != nullptr &&
+	(layer->parent->type == layerType::OPEN_FOLDER || layer->parent->type == layerType::CLOSED_FOLDER) &&
+	layer->parent->isVisible &&
+	layer->parent->parent != nullptr &&
+	GetName(layer->parent->parent) == "export";
+}
+
+bool UnderExport(Layer* layer) {
+	Layer* itr = layer;
+	while (itr) {
+		if (GetName(itr) == "export") return true;
+		itr = itr->parent;
+	}
+	return false;
 }
 
 bool ReadDocument(const std::string& inFile, AssetPack& assetPack) {
@@ -219,7 +223,7 @@ bool ReadDocument(const std::string& inFile, AssetPack& assetPack) {
 	}
 
 	////////////////////////////////////////////////////////////////
-	// start building the asset pack by iterating through layers
+	// start building the asset pack
 
 	// metadata
 	assetPack.docWidth = document->width;
@@ -255,70 +259,114 @@ bool ReadDocument(const std::string& inFile, AssetPack& assetPack) {
 		}
 	}
 
-	// layers second pass: parse data
-	uint32_t prevLayerType = 666; // an arbitrary invalid layer type
-	for (int i = 0; i < section->layerCount; i++) {
-		psd::Layer* layer = &section->layers[i];
-		psd::ExtractLayer(document, &file, &allocator, layer);
+	// layers second pass: actually parse data
+	const Layer* currentSpriteDivider = nullptr;
+	const Layer* currentSpriteFolder = nullptr;
+	const Layer* prevLayer = nullptr;
+	SpriteSet* currentSprite = nullptr;
+	std::string currentSpriteName;
+	uint32_t layerDataSize = document->width * document->height * 4;
+	auto ProcessSpriteMetaData = [&](Layer* layer) {
+		if (layer->layerMask) {
+			WARN("base layer(s) of '%s' has a layer mask, which will be ignored during export..", currentSpriteName.c_str())
+		}
+		if (blendMode::KeyToEnum(layer->blendModeKey) != blendMode::NORMAL) {
+			WARN("base layer of '%s' doesn't have normal blend mode- result might look different.", currentSpriteName.c_str())
+		}
+		// name
+		currentSprite->name = currentSpriteName;
 
-		// now we only care about layers inside visible folders inside "export":
-		if (layer->type == layerType::ANY &&
-			layer->parent != nullptr &&
-			(layer->parent->type == layerType::OPEN_FOLDER || layer->parent->type == layerType::CLOSED_FOLDER) &&
-			layer->parent->isVisible &&
-			layer->parent->parent != nullptr &&
+		// unit dims
+		auto tokens = SplitTokens(GetName(layer));
+		if (tokens.size() != 4) {
+			ERR("base layer of '%s' has incorrect spriteName format! quitting..", currentSpriteName.c_str())
+			file.Close(); return false;
+		}
+		currentSprite->minUnit = {std::stof(tokens[0]), std::stof(tokens[1])};
+		currentSprite->sizeUnit = {std::stof(tokens[2]), std::stof(tokens[3])};
+		return true;
+	};
+	auto ExpandPixelBBox = [&](Layer* layer) {
+		// pixel dims
+		int minX = std::max(0, layer->left);
+		int minY = std::max(0, layer->top);
+		int maxX = std::min((int)document->width, layer->right);
+		int maxY = std::min((int)document->height, layer->bottom);
+		ivec2 minPx = {
+			std::min(minX, currentSprite->minPx.x),
+			std::min(minY, currentSprite->minPx.y)
+		};
+		ivec2 maxPx = {
+			std::max(maxX, currentSprite->minPx.x+currentSprite->sizePx.x),
+			std::max(maxY, currentSprite->minPx.y+currentSprite->sizePx.y)
+		};
+		currentSprite->minPx = minPx;
+		currentSprite->sizePx = { maxPx.x - minPx.x, maxPx.y - minPx.y };
+	};
+	auto ProcessSpriteLayerContent = [&](std::vector<std::vector<uint8_t>>& dst, Layer* layer) {
+		ASSERT(layer->type == layerType::ANY)
+		uint8_t* layerData = GetLayerData(document, &file, allocator, layer);
+		if (!layerData) {
+			file.Close(); return false;
+		}
+		dst.emplace_back();
+		dst.back().resize(layerDataSize);
+		memcpy(dst.back().data(), layerData, layerDataSize);
+		allocator.Free(layerData);
+		return true;
+	};
+	for (int i = 0; i < section->layerCount; i++) {
+		Layer* layer = &section->layers[i];
+		if (!UnderExport(layer)) continue;
+
+		ExtractLayer(document, &file, &allocator, layer);
+
+		// entering new sprite..
+		if (layer->type == layerType::SECTION_DIVIDER &&
+			layer->parent && // asset group
+			layer->parent->parent && // "export"
 			GetName(layer->parent->parent) == "export"
 		) {
-			uint32_t dataSize = document->width * document->height * 4;
-			uint8_t* data = GetLayerData(document, &file, allocator, layer);
-			if (!data) {
-				file.Close(); return false;
-			}
-			std::string name = GetName(layer->parent);
-			SpriteSet& spriteSet = assetPack.spriteSets[name];
-			spriteSet.name = name;
-
-			if (prevLayerType == layerType::SECTION_DIVIDER) {
-				// base layer?
-				if (layer->layerMask) WARN("base layer of '%s' has a layer mask, which will be ignored during export..", name.c_str())
-				if (blendMode::KeyToEnum(layer->blendModeKey) != blendMode::NORMAL) {
-					WARN("base layer of '%s' doesn't have normal blend mode- result might look different.", name.c_str())
-				}
-
-				// base layer data
-				spriteSet.baseLayerData.resize(dataSize);
-				memcpy(spriteSet.baseLayerData.data(), data, dataSize);
-
-				// pixel dims
-				int minX = std::max(0, layer->left);
-				int minY = std::max(0, layer->top);
-				int maxX = std::min((int)document->width, layer->right);
-				int maxY = std::min((int)document->height, layer->bottom);
-				spriteSet.minPx = { minX, minY };
-				spriteSet.sizePx = { maxX-minX, maxY-minY };
-
-				// unit dims
-				auto tokens = SplitTokens(GetName(layer));
-				if (tokens.size() != 4) {
-					ERR("base layer of '%s' has incorrect name format! quitting..", name.c_str())
-					file.Close(); return false;
-				}
-				spriteSet.minUnit = {std::stof(tokens[0]), std::stof(tokens[1])};
-				spriteSet.sizeUnit = {std::stof(tokens[2]), std::stof(tokens[3])};
-
-			} else {
-				// light layer?
-				if (blendMode::KeyToEnum(layer->blendModeKey) != blendMode::LINEAR_DODGE) {
-					WARN("a light layer of '%s' doesn't have linear dodge (additive) blend mode- result might look different.", name.c_str())
-				}
-				// light layer data
-				spriteSet.lightLayersData.emplace_back(dataSize);
-				memcpy(spriteSet.lightLayersData.back().data(), data, dataSize);
-			}
-
-			allocator.Free(data);
+			currentSpriteDivider = layer;
+			currentSpriteFolder = layer->parent;
+			currentSpriteName = GetName(layer->parent);
+			currentSprite = &assetPack.spriteSets[GetName(layer->parent)];
+			// initial bbox, to be expanded..
+			currentSprite->minPx = { (int)document->width, (int)document->height };
+			currentSprite->sizePx = { -(int)document->width, -(int)document->height };
 		}
-		prevLayerType = layer->type;
+
+		// direct child of sprite folder, but folder --> base container
+		else if (
+			layer->parent == currentSpriteFolder &&
+			(layer->type == layerType::CLOSED_FOLDER || layer->type == layerType::OPEN_FOLDER)
+		) {
+			if (!ProcessSpriteMetaData(layer)) return false;
+		}
+
+		// grand child of sprite folder, raster layer --> base content, maybe more than 1
+		else if (
+			layer->parent && layer->parent->parent == currentSpriteFolder &&
+			layer->type == layerType::ANY
+		) {
+			if (!ProcessSpriteLayerContent(currentSprite->baseLayersData, layer)) return false;
+			ExpandPixelBBox(layer);
+		}
+
+		// direct child of sprite folder, raster layer --> single base layer, or lightTex
+		else if (layer->parent == currentSpriteFolder && layer->type == layerType::ANY) {
+			// single base layer
+			if (prevLayer == currentSpriteDivider) {
+				if (!ProcessSpriteMetaData(layer)) return false;
+				if (!ProcessSpriteLayerContent(currentSprite->baseLayersData, layer)) return false;
+				ExpandPixelBBox(layer);
+			}
+			// light tex
+			else {
+				if (!ProcessSpriteLayerContent(currentSprite->lightLayersData, layer)) return false;
+			}
+		}
+		prevLayer = layer;
 	}
 
 	file.Close();
