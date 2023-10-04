@@ -15,7 +15,9 @@ set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DDEBUG=0")
 
 set(echoesexporter_source
     EchoesExporter.cpp
-    ../External/stb_image_write_impl.cpp
+    AssetPack.cpp
+    ../External/stb_image_write.cpp
+    ../External/stb_image_resize.cpp
 )
 
 add_executable(${PROJECT_NAME} ${echoesexporter_source})
