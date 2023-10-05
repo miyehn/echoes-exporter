@@ -161,16 +161,6 @@ uint8_t* GetLayerData(const Document* document, File* file, Allocator &allocator
 }
 }
 
-bool IsBaseOrLightLayer(const Layer* layer) {
-	return
-	(layer->type == layerType::ANY || layer->type == layerType::OPEN_FOLDER || layer->type == layerType::CLOSED_FOLDER) &&
-	layer->parent != nullptr &&
-	(layer->parent->type == layerType::OPEN_FOLDER || layer->parent->type == layerType::CLOSED_FOLDER) &&
-	layer->parent->isVisible &&
-	layer->parent->parent != nullptr &&
-	GetName(layer->parent->parent) == "export";
-}
-
 bool UnderExport(Layer* layer) {
 	Layer* itr = layer;
 	while (itr) {
@@ -278,12 +268,14 @@ bool ReadDocument(const std::string& inFile, AssetPack& assetPack) {
 
 		// unit dims
 		auto tokens = SplitTokens(GetName(layer));
-		if (tokens.size() != 4) {
-			ERR("base layer of '%s' has incorrect spriteName format! quitting..", currentSpriteName.c_str())
-			file.Close(); return false;
+		if (tokens.size() == 4) {
+			currentSprite->minUnit = {std::stof(tokens[0]), std::stof(tokens[1])};
+			currentSprite->sizeUnit = {std::stof(tokens[2]), std::stof(tokens[3])};
+		} else {
+			WARN("base layer of '%s' has incorrect layer name format! This set of sprites will be anchored at (0, 0)", currentSpriteName.c_str())
+			currentSprite->minUnit = {0, 0};
+			currentSprite->sizeUnit = {1, 1};
 		}
-		currentSprite->minUnit = {std::stof(tokens[0]), std::stof(tokens[1])};
-		currentSprite->sizeUnit = {std::stof(tokens[2]), std::stof(tokens[3])};
 		return true;
 	};
 	auto ExpandPixelBBox = [&](Layer* layer) {

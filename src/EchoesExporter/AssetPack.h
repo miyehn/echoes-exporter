@@ -4,14 +4,38 @@
 #include <unordered_map>
 #include <string>
 
-struct ivec2 {
-	int x = 0;
-	int y = 0;
-};
-
 struct vec2 {
 	float x = 0;
 	float y = 0;
+
+	vec2 operator+(const vec2 other) const {
+		return {
+			x + other.x,
+			y + other.y
+		};
+	}
+
+	vec2 operator-(const vec2 other) const {
+		return {
+			x - other.x,
+			y - other.y
+		};
+	}
+
+	vec2 operator*(float c) const {
+		return { x * c, y * c};
+	}
+	vec2 operator/(float c) const {
+		return { x / c, y / c};
+	}
+};
+
+struct ivec2 {
+	int x = 0;
+	int y = 0;
+	operator vec2() const {
+		return {(float)x, (float)y};
+	}
 };
 
 struct SpriteSet {
