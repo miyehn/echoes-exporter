@@ -131,6 +131,7 @@ struct MaterialInfo {
 	std::string light1TexPath;
 	std::string light2TexPath;
 	std::string light3TexPath;
+	vec2 size;
 	Json::Value serialized() const {
 		Json::Value result;
 		result["name"] = name;
@@ -139,6 +140,7 @@ struct MaterialInfo {
 		result["light1TexPath"] = light1TexPath;
 		result["light2TexPath"] = light2TexPath;
 		result["light3TexPath"] = light3TexPath;
+		result["size"] = size.serialized();
 		return result;
 	}
 };
@@ -197,6 +199,7 @@ std::string SerializeAssetPack(const AssetPack& assetPack) {
 			mat.name = sprite.getBaseName();
 			LOG("exporting material '%s'..", mat.name.c_str())
 			mat.mainTexPath = sprite.getBaseTexPath(baseLayerIdx);
+			mat.size = sprite.sizeUnit;
 			for (int lightLayerIdx = 0; lightLayerIdx < sprite.lightLayersData.size(); lightLayerIdx++) {
 				if (lightLayerIdx == 0) mat.light0TexPath = sprite.getLightTexPath(0);
 				else if (lightLayerIdx == 1) mat.light1TexPath = sprite.getLightTexPath(1);
