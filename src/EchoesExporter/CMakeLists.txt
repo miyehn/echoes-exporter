@@ -4,6 +4,9 @@
 
 cmake_minimum_required(VERSION 3.2)
 
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 project(EchoesExporter)
 
 include_directories(../External)
@@ -18,6 +21,7 @@ set(echoesexporter_source
     AssetPack.cpp
     ../External/stb_image_write.cpp
     ../External/stb_image_resize.cpp
+    ../External/jsoncpp.cpp
 )
 
 add_executable(${PROJECT_NAME} ${echoesexporter_source})

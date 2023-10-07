@@ -1,8 +1,12 @@
 #include <Windows.h>
+#include <filesystem>
+#include <sstream>
+#include <fstream>
 #include "stb_image_resize.h"
 #include "stb_image_write.h"
 #include "AssetPack.h"
 #include "Log.h"
+#include "json/json.h"
 
 #define EXPORT_PPU 100.0f
 
@@ -77,23 +81,18 @@ void WritePngToDirectory(
 	const std::string& fileName,
 	float resizeRatio = 1.0f
 ) {
-	// from: https://stackoverflow.com/questions/9235679/create-a-directory-if-it-doesnt-exist
-	if (CreateDirectory(outDir.c_str(), NULL) || ERROR_ALREADY_EXISTS == GetLastError()) {
-		std::string fullpath = outDir + "/" + fileName;
+	std::string fullpath = outDir + "/" + fileName;
 
-		// resize
-		uint32_t newWidth = std::ceil(width * resizeRatio);
-		uint32_t newHeight = std::ceil(height * resizeRatio);
-		std::vector<uint8_t> resizedData(newWidth * newHeight * 4);
-		stbir_resize_uint8(
-			data.data(), width, height, width * 4,
-			resizedData.data(), newWidth, newHeight, newWidth * 4, 4);
+	// resize
+	uint32_t newWidth = std::ceil(width * resizeRatio);
+	uint32_t newHeight = std::ceil(height * resizeRatio);
+	std::vector<uint8_t> resizedData(newWidth * newHeight * 4);
+	stbir_resize_uint8(
+		data.data(), width, height, width * 4,
+		resizedData.data(), newWidth, newHeight, newWidth * 4, 4);
 
-		// write
-		EXPECT(stbi_write_png(fullpath.c_str(), newWidth, newHeight, 4, resizedData.data(), 4 * newWidth) != 0, true)
-	} else {
-		ERR("failed to create dir")
-	}
+	// write
+	EXPECT(stbi_write_png(fullpath.c_str(), newWidth, newHeight, 4, resizedData.data(), 4 * newWidth) != 0, true)
 }
 
 std::vector<uint8_t> Crop(const std::vector<uint8_t>& data, uint32_t srcStrideInBytes, ivec2 minPx, ivec2 sizePx) {
@@ -107,17 +106,69 @@ std::vector<uint8_t> Crop(const std::vector<uint8_t>& data, uint32_t srcStrideIn
 	return result;
 }
 
-bool ExportAssetPack(const AssetPack& assetPack, const std::string& outDir) {
+Json::Value vec2::serialized() const {
+	Json::Value result;
+	result["x"] = x;
+	result["y"] = y;
+	return result;
+}
 
-	// compute resize ratio
-	const float standardPPDU = std::sqrt(2.0f) * EXPORT_PPU;
-	const float resizeRatio = standardPPDU / assetPack.pixelsPerDiagonalUnit;
-	LOG("PPDU: %.3f, resize ratio: %.3f", assetPack.pixelsPerDiagonalUnit, resizeRatio)
+struct PivotInfo {
+	std::string texPath;
+	vec2 pivot;
+	Json::Value serialized() const {
+		Json::Value result;
+		result["texPath"] = texPath;
+		result["pivot"] = pivot.serialized();
+		return result;
+	}
+};
 
-	for (auto& pair : assetPack.spriteSets) {
+struct MaterialInfo {
+	std::string name;
+	std::string mainTexPath;
+	std::string light0TexPath;
+	std::string light1TexPath;
+	std::string light2TexPath;
+	std::string light3TexPath;
+	Json::Value serialized() const {
+		Json::Value result;
+		result["name"] = name;
+		result["mainTexPath"] = mainTexPath;
+		result["light0TexPath"] = light0TexPath;
+		result["light1TexPath"] = light1TexPath;
+		result["light2TexPath"] = light2TexPath;
+		result["light3TexPath"] = light3TexPath;
+		return result;
+	}
+};
 
-		const SpriteSet& sprite = pair.second;
-		std::string baseName = JoinTokens(SplitTokens(sprite.name));
+std::string SpriteSet::getBaseName() const {
+	return JoinTokens(SplitTokens(name));
+}
+
+std::string SpriteSet::getBaseTexPath(int index) const {
+	return getBaseName() + "_part"+std::to_string(index)+"_base.png";
+}
+
+std::string SpriteSet::getLightTexPath(int index) const {
+	std::string baseName = JoinTokens(SplitTokens(name));
+	return getBaseName() + "_L" + std::to_string(index) +".png";
+}
+// a list of all base textures to their anchor points
+
+// also a list of materials, each:
+// base tex + all the light textures
+// base name
+
+std::string SerializeAssetPack(const AssetPack& assetPack) {
+	Json::Value root;
+
+	// pivots
+	Json::Value pivots;
+	int pivotIdx = 0;
+	for (auto& spritePair : assetPack.spriteSets) {
+		auto& sprite = spritePair.second;
 		vec2 basePointUnit = sprite.minUnit + sprite.sizeUnit/2;
 		vec2 relAnchorPx = UnitPosToPixelPos(basePointUnit, assetPack.pixelsPerDiagonalUnit);
 		vec2 anchorPx = relAnchorPx + assetPack.docOriginPx - sprite.minPx;
@@ -125,20 +176,102 @@ bool ExportAssetPack(const AssetPack& assetPack, const std::string& outDir) {
 			anchorPx.x / sprite.sizePx.x,
 			1.0f - anchorPx.y / sprite.sizePx.y // since unity wants this reversed
 		};
-		LOG("%s: (%.3f, %.3f)", baseName.c_str(), anchorNormalized.x, anchorNormalized.y)
+		for (int baseLayerIdx = 0; baseLayerIdx < sprite.baseLayersData.size(); baseLayerIdx++) {
+			PivotInfo pivot = {
+				sprite.getBaseTexPath(baseLayerIdx),
+				anchorNormalized
+			};
+			pivots[pivotIdx] = pivot.serialized();
+			pivotIdx++;
+		}
+	}
+	root["pivots"] = pivots;
 
+	// materials
+	Json::Value materials;
+	int matIdx = 0;
+	for (auto& spritePair : assetPack.spriteSets) {
+		auto &sprite = spritePair.second;
+		for (int baseLayerIdx = 0; baseLayerIdx < sprite.baseLayersData.size(); baseLayerIdx++) {
+			MaterialInfo mat;
+			mat.name = sprite.getBaseName();
+			LOG("exporting material '%s'..", mat.name.c_str())
+			mat.mainTexPath = sprite.getBaseTexPath(baseLayerIdx);
+			for (int lightLayerIdx = 0; lightLayerIdx < sprite.lightLayersData.size(); lightLayerIdx++) {
+				if (lightLayerIdx == 0) mat.light0TexPath = sprite.getLightTexPath(0);
+				else if (lightLayerIdx == 1) mat.light1TexPath = sprite.getLightTexPath(1);
+				else if (lightLayerIdx == 2) mat.light2TexPath = sprite.getLightTexPath(2);
+				else if (lightLayerIdx == 3) mat.light3TexPath = sprite.getLightTexPath(3);
+				else ASSERT(false)
+			}
+			materials[matIdx] = mat.serialized();
+			matIdx++;
+		}
+	}
+	root["materials"] = materials;
+
+	std::stringstream stream;
+	stream << root;
+	return stream.str();
+}
+
+bool ExportAssetPack(const AssetPack& assetPack, const std::string& outDir) {
+
+	// remove everything from previous export
+	if (std::filesystem::exists(outDir)) {
+		std::filesystem::remove_all(outDir);
+	}
+
+	// from: https://stackoverflow.com/questions/9235679/create-a-directory-if-it-doesnt-exist
+	std::filesystem::create_directories(outDir);
+
+	// compute resize ratio
+	const float standardPPDU = std::sqrt(2.0f) * EXPORT_PPU;
+	const float resizeRatio = standardPPDU / assetPack.pixelsPerDiagonalUnit;
+	LOG("resize ratio: %.3f", resizeRatio)
+
+	for (auto& pair : assetPack.spriteSets) {
+
+		const SpriteSet& sprite = pair.second;
 		for (int i = 0; i < sprite.baseLayersData.size(); i++) {
 			auto baseRegionData = Crop(sprite.baseLayersData[i], assetPack.docWidth * 4, sprite.minPx, sprite.sizePx);
 			WritePngToDirectory(
 				baseRegionData, sprite.sizePx.x, sprite.sizePx.y, outDir,
-				baseName+"_part"+std::to_string(i)+"_base.png", resizeRatio);
+				sprite.getBaseTexPath(i), resizeRatio);
 		}
 		for (int i = 0; i < sprite.lightLayersData.size(); i++) {
 			auto lightTexRegionData = Crop(sprite.lightLayersData[i], assetPack.docWidth * 4, sprite.minPx, sprite.sizePx);
 			WritePngToDirectory(
 				lightTexRegionData, sprite.sizePx.x, sprite.sizePx.y, outDir,
-				baseName+"_L" + std::to_string(i) +".png", resizeRatio);
+				sprite.getLightTexPath(i), resizeRatio);
 		}
 	}
+
+	/*
+	std::string folderName = outDir.substr(outDir.find_last_of("/\\") + 1);
+	if (folderName.length() == 0) folderName = outDir;
+	LOG("finished saving png files, packing them into %s.zip..", folderName.c_str())
+
+	std::string fullCommand = "tar -cf " + outDir + ".tar " + outDir + "/*";
+	system(fullCommand.c_str());
+	 */
+#if 1
+	// also export a json
+	std::string outstr = SerializeAssetPack(assetPack);
+
+	// write to file
+	std::string folderName = outDir.substr(outDir.find_last_of("/\\") + 1);
+	std::ofstream file;
+	file.open(outDir + "/" + folderName + ".assetpack");
+	if (file.is_open()) {
+		file << outstr;
+		file.close();
+	} else {
+		ASSERT(false)
+		return false;
+	}
 	return true;
+#else
+	return true;
+#endif
 }

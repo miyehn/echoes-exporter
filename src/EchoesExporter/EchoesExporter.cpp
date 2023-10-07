@@ -161,13 +161,22 @@ uint8_t* GetLayerData(const Document* document, File* file, Allocator &allocator
 }
 }
 
-bool UnderExport(Layer* layer) {
-	Layer* itr = layer;
+bool UnderExport(const Layer* layer) {
+	const Layer* itr = layer;
 	while (itr) {
 		if (GetName(itr) == "export") return true;
 		itr = itr->parent;
 	}
 	return false;
+}
+
+bool VisibleInHierarchy(const Layer* layer) {
+	const Layer* itr = layer;
+	while (itr) {
+		if (!itr->isVisible) return false;
+		itr = itr->parent;
+	}
+	return true;
 }
 
 bool ReadDocument(const std::string& inFile, AssetPack& assetPack) {
@@ -223,7 +232,7 @@ bool ReadDocument(const std::string& inFile, AssetPack& assetPack) {
 	for (int i = 0; i < section->layerCount; i++) {
 		psd::Layer* layer = &section->layers[i];
 		// info layers:
-		if (layer->parent != nullptr && GetName(layer->parent)=="info") {
+		if (layer->parent != nullptr && GetName(layer->parent)=="meta") {
 			if (GetName(layer) == "origin") {
 				assetPack.docOriginPx = {
 					(layer->right + layer->left) * 0.5f,
@@ -238,7 +247,7 @@ bool ReadDocument(const std::string& inFile, AssetPack& assetPack) {
 		}
 		// export layers: just create something empty and insert into dict for now
 		else if (
-			layer->isVisible &&
+			VisibleInHierarchy(layer) &&
 			(layer->type == layerType::OPEN_FOLDER || layer->type == layerType::CLOSED_FOLDER) &&
 			layer->parent != nullptr &&
 			GetName(layer->parent)=="export")
@@ -309,15 +318,15 @@ bool ReadDocument(const std::string& inFile, AssetPack& assetPack) {
 	};
 	for (int i = 0; i < section->layerCount; i++) {
 		Layer* layer = &section->layers[i];
-		if (!UnderExport(layer)) continue;
+		if (!UnderExport(layer) || (layer->type!=layerType::SECTION_DIVIDER && !VisibleInHierarchy(layer))) continue;
 
 		ExtractLayer(document, &file, &allocator, layer);
 
 		// entering new sprite..
 		if (layer->type == layerType::SECTION_DIVIDER &&
 			layer->parent && // asset group
-			layer->parent->parent && // "export"
-			GetName(layer->parent->parent) == "export"
+			layer->parent->parent && GetName(layer->parent->parent) == "export" && // "export"
+			assetPack.spriteSets.find(GetName(layer->parent)) != assetPack.spriteSets.end() // check there is a sprite set
 		) {
 			currentSpriteDivider = layer;
 			currentSpriteFolder = layer->parent;
@@ -330,6 +339,7 @@ bool ReadDocument(const std::string& inFile, AssetPack& assetPack) {
 
 		// direct child of sprite folder, but folder --> base container
 		else if (
+			currentSpriteFolder &&
 			layer->parent == currentSpriteFolder &&
 			(layer->type == layerType::CLOSED_FOLDER || layer->type == layerType::OPEN_FOLDER)
 		) {
@@ -338,6 +348,7 @@ bool ReadDocument(const std::string& inFile, AssetPack& assetPack) {
 
 		// grand child of sprite folder, raster layer --> base content, maybe more than 1
 		else if (
+			currentSpriteFolder &&
 			layer->parent && layer->parent->parent == currentSpriteFolder &&
 			layer->type == layerType::ANY
 		) {
@@ -346,7 +357,9 @@ bool ReadDocument(const std::string& inFile, AssetPack& assetPack) {
 		}
 
 		// direct child of sprite folder, raster layer --> single base layer, or lightTex
-		else if (layer->parent == currentSpriteFolder && layer->type == layerType::ANY) {
+		else if (
+			currentSpriteFolder &&
+			layer->parent == currentSpriteFolder && layer->type == layerType::ANY) {
 			// single base layer
 			if (prevLayer == currentSpriteDivider) {
 				if (!ProcessSpriteMetaData(layer)) return false;

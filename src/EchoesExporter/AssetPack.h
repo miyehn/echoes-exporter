@@ -3,6 +3,7 @@
 #include <vector>
 #include <unordered_map>
 #include <string>
+#include "json/json-forwards.h"
 
 struct vec2 {
 	float x = 0;
@@ -28,6 +29,7 @@ struct vec2 {
 	vec2 operator/(float c) const {
 		return { x / c, y / c};
 	}
+	Json::Value serialized() const;
 };
 
 struct ivec2 {
@@ -48,6 +50,10 @@ struct SpriteSet {
 	// rel to doc origin, in units (parsed from base layer name)
 	vec2 minUnit;
 	vec2 sizeUnit;
+
+	std::string getBaseName() const;
+	std::string getBaseTexPath(int index) const;
+	std::string getLightTexPath(int index) const;
 };
 
 struct AssetPack {
