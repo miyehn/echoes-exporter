@@ -128,18 +128,26 @@ struct MaterialInfo {
 	std::string name;
 	std::string mainTexPath;
 	std::string light0TexPath;
+	std::string light0Message = "(none)";
 	std::string light1TexPath;
+	std::string light1Message = "(none)";
 	std::string light2TexPath;
+	std::string light2Message = "(none)";
 	std::string light3TexPath;
+	std::string light3Message = "(none)";
 	vec2 size;
 	Json::Value serialized() const {
 		Json::Value result;
 		result["name"] = name;
 		result["mainTexPath"] = mainTexPath;
 		result["light0TexPath"] = light0TexPath;
+		result["light0Message"] = light0Message;
 		result["light1TexPath"] = light1TexPath;
+		result["light1Message"] = light1Message;
 		result["light2TexPath"] = light2TexPath;
+		result["light2Message"] = light2Message;
 		result["light3TexPath"] = light3TexPath;
+		result["light3Message"] = light3Message;
 		result["size"] = size.serialized();
 		return result;
 	}
@@ -171,8 +179,8 @@ std::string SerializeAssetPack(const AssetPack& assetPack) {
 	int pivotIdx = 0;
 	for (auto& spritePair : assetPack.spriteSets) {
 		auto& sprite = spritePair.second;
-		vec2 basePointUnit = sprite.minUnit + sprite.sizeUnit/2;
-		vec2 relAnchorPx = UnitPosToPixelPos(basePointUnit, assetPack.pixelsPerDiagonalUnit);
+		vec2 anchorUnit = sprite.minUnit + sprite.sizeUnit / 2;
+		vec2 relAnchorPx = UnitPosToPixelPos(anchorUnit, assetPack.pixelsPerDiagonalUnit);
 		vec2 anchorPx = relAnchorPx + assetPack.docOriginPx - sprite.minPx;
 		vec2 anchorNormalized = {
 			anchorPx.x / sprite.sizePx.x,
@@ -184,6 +192,7 @@ std::string SerializeAssetPack(const AssetPack& assetPack) {
 				anchorNormalized
 			};
 			pivots[pivotIdx] = pivot.serialized();
+			// LOG("%s pivot at (%.3f, %.3f)", sprite.getBaseTexPath(baseLayerIdx).c_str(), pivot.pivot.x, pivot.pivot.y)
 			pivotIdx++;
 		}
 	}
@@ -201,10 +210,22 @@ std::string SerializeAssetPack(const AssetPack& assetPack) {
 			mat.mainTexPath = sprite.getBaseTexPath(baseLayerIdx);
 			mat.size = sprite.sizeUnit;
 			for (int lightLayerIdx = 0; lightLayerIdx < sprite.lightLayersData.size(); lightLayerIdx++) {
-				if (lightLayerIdx == 0) mat.light0TexPath = sprite.getLightTexPath(0);
-				else if (lightLayerIdx == 1) mat.light1TexPath = sprite.getLightTexPath(1);
-				else if (lightLayerIdx == 2) mat.light2TexPath = sprite.getLightTexPath(2);
-				else if (lightLayerIdx == 3) mat.light3TexPath = sprite.getLightTexPath(3);
+				if (lightLayerIdx == 0) {
+					mat.light0TexPath = sprite.getLightTexPath(0);
+					mat.light0Message = sprite.lightLayerNames[0];
+				}
+				else if (lightLayerIdx == 1) {
+					mat.light1TexPath = sprite.getLightTexPath(1);
+					mat.light1Message = sprite.lightLayerNames[1];
+				}
+				else if (lightLayerIdx == 2) {
+					mat.light2TexPath = sprite.getLightTexPath(2);
+					mat.light2Message = sprite.lightLayerNames[2];
+				}
+				else if (lightLayerIdx == 3) {
+					mat.light3TexPath = sprite.getLightTexPath(3);
+					mat.light3Message = sprite.lightLayerNames[3];
+				}
 				else ASSERT(false)
 			}
 			materials[matIdx] = mat.serialized();

@@ -44,6 +44,7 @@ struct SpriteSet {
 	std::string name;
 	std::vector<std::vector<uint8_t>> baseLayersData;
 	std::vector<std::vector<uint8_t>> lightLayersData;
+	std::vector<std::string> lightLayerNames;
 	// rel to doc canvas, in pixels
 	ivec2 minPx;
 	ivec2 sizePx;
@@ -66,3 +67,7 @@ struct AssetPack {
 std::vector<std::string> SplitTokens(const std::string& s);
 
 bool ExportAssetPack(const AssetPack& assetPack, const std::string& outDir);
+
+vec2 PixelPosToUnitPos(vec2 pixelPos, float workingPPDU);
+
+vec2 UnitPosToPixelPos(vec2 unitPos, float workingPPDU);

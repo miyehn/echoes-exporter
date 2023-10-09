@@ -129,6 +129,12 @@ std::string GetName(const Layer* layer) {
 	return name;
 }
 
+enum PositionParseStatus {
+		NotParsed,
+		ParsedSizeOnly,
+		ParseDone,
+	};
+
 uint8_t* GetLayerData(const Document* document, File* file, Allocator &allocator, Layer* layer) {
 	const unsigned int indexR = FindChannel(layer, channelType::R);
 	const unsigned int indexG = FindChannel(layer, channelType::G);
@@ -259,12 +265,14 @@ bool ReadDocument(const std::string& inFile, AssetPack& assetPack) {
 	}
 
 	// layers second pass: actually parse data
+	uint32_t layerDataSize = document->width * document->height * 4;
+
 	const Layer* currentSpriteDivider = nullptr;
 	const Layer* currentSpriteFolder = nullptr;
 	const Layer* prevLayer = nullptr;
 	SpriteSet* currentSprite = nullptr;
 	std::string currentSpriteName;
-	uint32_t layerDataSize = document->width * document->height * 4;
+	PositionParseStatus positionParseStatus = ParseDone;
 	auto ProcessSpriteMetaData = [&](Layer* layer) {
 		if (layer->layerMask) {
 			WARN("base layer(s) of '%s' has a layer mask, which will be ignored during export..", currentSpriteName.c_str())
@@ -280,10 +288,10 @@ bool ReadDocument(const std::string& inFile, AssetPack& assetPack) {
 		if (tokens.size() == 4) {
 			currentSprite->minUnit = {std::stof(tokens[0]), std::stof(tokens[1])};
 			currentSprite->sizeUnit = {std::stof(tokens[2]), std::stof(tokens[3])};
-		} else {
-			WARN("base layer of '%s' has incorrect layer name format! This set of sprites will be anchored at (0, 0)", currentSpriteName.c_str())
-			currentSprite->minUnit = {0, 0};
-			currentSprite->sizeUnit = {1, 1};
+			positionParseStatus = ParseDone;
+		} else if (tokens.size() == 2) {
+			currentSprite->sizeUnit = {std::stof(tokens[0]), std::stof(tokens[1])};
+			positionParseStatus = ParsedSizeOnly;
 		}
 		return true;
 	};
@@ -328,10 +336,22 @@ bool ReadDocument(const std::string& inFile, AssetPack& assetPack) {
 			layer->parent->parent && GetName(layer->parent->parent) == "export" && // "export"
 			assetPack.spriteSets.find(GetName(layer->parent)) != assetPack.spriteSets.end() // check there is a sprite set
 		) {
+			// check if last sprite has position info fully parsed, give warning if not:
+			if (positionParseStatus != ParseDone) {
+				if (positionParseStatus == NotParsed) {
+					WARN("failed to parse position and size information for sprite %s; its pivot will be incorrect", currentSprite->name.c_str())
+				} else if (positionParseStatus == ParsedSizeOnly) {
+					WARN("didn't find position information for sprite %s, its pivot will be incorrect: did you forget to include the 'corner' layer?", currentSprite->name.c_str())
+				}
+				currentSprite->minUnit = {0, 0};
+				currentSprite->sizeUnit = {1, 1};
+			}
+			// actually move on to new layer:
 			currentSpriteDivider = layer;
 			currentSpriteFolder = layer->parent;
 			currentSpriteName = GetName(layer->parent);
 			currentSprite = &assetPack.spriteSets[GetName(layer->parent)];
+			positionParseStatus = NotParsed;
 			// initial bbox, to be expanded..
 			currentSprite->minPx = { (int)document->width, (int)document->height };
 			currentSprite->sizePx = { -(int)document->width, -(int)document->height };
@@ -356,7 +376,7 @@ bool ReadDocument(const std::string& inFile, AssetPack& assetPack) {
 			ExpandPixelBBox(layer);
 		}
 
-		// direct child of sprite folder, raster layer --> single base layer, or lightTex
+		// direct child of sprite folder, raster layer --> single base layer, or lightTex, or corner
 		else if (
 			currentSpriteFolder &&
 			layer->parent == currentSpriteFolder && layer->type == layerType::ANY) {
@@ -367,8 +387,26 @@ bool ReadDocument(const std::string& inFile, AssetPack& assetPack) {
 				ExpandPixelBBox(layer);
 			}
 			// light tex
+			else if (GetName(layer) != "corner") {
+				if (ProcessSpriteLayerContent(currentSprite->lightLayersData, layer)) {
+					currentSprite->lightLayerNames.emplace_back(GetName(layer));
+				} else {
+					return false;
+				}
+			}
+			// corner marker
 			else {
-				if (!ProcessSpriteLayerContent(currentSprite->lightLayersData, layer)) return false;
+				ASSERT(GetName(layer) == "corner")
+				if (positionParseStatus == ParsedSizeOnly) {
+					vec2 cornerPosPx = {
+						(layer->right + layer->left) * 0.5f,
+						(layer->bottom + layer->top) * 0.5f
+					};
+					cornerPosPx = cornerPosPx - assetPack.docOriginPx;
+					currentSprite->minUnit = PixelPosToUnitPos(cornerPosPx, assetPack.pixelsPerDiagonalUnit);
+
+					positionParseStatus = ParseDone;
+				}
 			}
 		}
 		prevLayer = layer;
@@ -412,6 +450,10 @@ int main(int argc, const char* argv[]) {
 	ExportAssetPack(assetPack, outDir);
 
 #endif
+
+	vec2 testUnit = {1, -3};
+	vec2 testPx = UnitPosToPixelPos(testUnit, 298);
+	vec2 testUnitBack = PixelPosToUnitPos(testPx, 298);
 
 	LOG("done.")
 	return 0;
