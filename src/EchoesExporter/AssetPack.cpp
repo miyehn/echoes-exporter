@@ -11,8 +11,9 @@
 #define EXPORT_PPU 100.0f
 
 const float sqrt2 = std::sqrt(2.0f);
-const vec2 ISO_X = {sqrt2 / 2, 0.8f * sqrt2 / 2 };
-const vec2 ISO_Y = {sqrt2 / 2, -0.8f * sqrt2 / 2 };
+const float sqrt3 = std::sqrt(3.0f);
+const vec2 ISO_X = {sqrt2 / 2, sqrt2 / sqrt3 / 2 };
+const vec2 ISO_Y = {sqrt2 / 2, -sqrt2 / sqrt3 / 2 };
 
 vec2 ToIsometric(vec2 p) {
 	vec2 v0 = ISO_X;
@@ -135,6 +136,7 @@ struct MaterialInfo {
 	std::string light2Message = "(none)";
 	std::string light3TexPath;
 	std::string light3Message = "(none)";
+	vec2 basePosition;
 	vec2 size;
 	Json::Value serialized() const {
 		Json::Value result;
@@ -148,6 +150,7 @@ struct MaterialInfo {
 		result["light2Message"] = light2Message;
 		result["light3TexPath"] = light3TexPath;
 		result["light3Message"] = light3Message;
+		result["basePosition"] = basePosition.serialized();
 		result["size"] = size.serialized();
 		return result;
 	}
@@ -158,12 +161,18 @@ std::string SpriteSet::getBaseName() const {
 }
 
 std::string SpriteSet::getBaseTexPath(int index) const {
-	return getBaseName() + "_part"+std::to_string(index)+"_base.png";
+	return getBaseName() + "_base"+std::to_string(index)+".png";
 }
 
 std::string SpriteSet::getLightTexPath(int index) const {
 	std::string baseName = JoinTokens(SplitTokens(name));
 	return getBaseName() + "_L" + std::to_string(index) +".png";
+}
+
+float ComputeResizeRatio(float pixelsPerDiagonalUnit) {
+	const float standardPPDU = std::sqrt(2.0f) * EXPORT_PPU;
+	const float resizeRatio = standardPPDU / pixelsPerDiagonalUnit;
+	return resizeRatio;
 }
 // a list of all base textures to their anchor points
 
@@ -192,13 +201,14 @@ std::string SerializeAssetPack(const AssetPack& assetPack) {
 				anchorNormalized
 			};
 			pivots[pivotIdx] = pivot.serialized();
-			// LOG("%s pivot at (%.3f, %.3f)", sprite.getBaseTexPath(baseLayerIdx).c_str(), pivot.pivot.x, pivot.pivot.y)
+			LOG("%s pivot at (%.3f, %.3f)", sprite.getBaseTexPath(baseLayerIdx).c_str(), pivot.pivot.x, pivot.pivot.y)
 			pivotIdx++;
 		}
 	}
 	root["pivots"] = pivots;
 
 	// materials
+	const float resizeRatio = ComputeResizeRatio(assetPack.pixelsPerDiagonalUnit);
 	Json::Value materials;
 	int matIdx = 0;
 	for (auto& spritePair : assetPack.spriteSets) {
@@ -208,6 +218,7 @@ std::string SerializeAssetPack(const AssetPack& assetPack) {
 			mat.name = sprite.getBaseName();
 			LOG("exporting material '%s'..", mat.name.c_str())
 			mat.mainTexPath = sprite.getBaseTexPath(baseLayerIdx);
+			mat.basePosition = sprite.minUnit;
 			mat.size = sprite.sizeUnit;
 			for (int lightLayerIdx = 0; lightLayerIdx < sprite.lightLayersData.size(); lightLayerIdx++) {
 				if (lightLayerIdx == 0) {
@@ -250,8 +261,7 @@ bool ExportAssetPack(const AssetPack& assetPack, const std::string& outDir) {
 	std::filesystem::create_directories(outDir);
 
 	// compute resize ratio
-	const float standardPPDU = std::sqrt(2.0f) * EXPORT_PPU;
-	const float resizeRatio = standardPPDU / assetPack.pixelsPerDiagonalUnit;
+	const float resizeRatio = ComputeResizeRatio(assetPack.pixelsPerDiagonalUnit);
 	LOG("resize ratio: %.3f", resizeRatio)
 
 	for (auto& pair : assetPack.spriteSets) {

@@ -419,11 +419,10 @@ bool ReadDocument(const std::string& inFile, AssetPack& assetPack) {
 
 int main(int argc, const char* argv[]) {
 
-	cxxopts::Options options("EchoesExporter", "todo: put documentation link here");
+	cxxopts::Options options("EchoesExporter", "Repository link: https://github.com/miyehn/echoes-exporter\nDocumentation coming soon..");
 	options.add_options()
-		("f,file", "input psd file, abs path or relative to executable", cxxopts::value<std::string>()/*->default_value("input.psd")*/)
-		("o,outdir", "output directory, abs path or relative to executable", cxxopts::value<std::string>()->default_value("output"))
-		("h,help", "print help message")
+		("f,file", "input psd file, absolute path or relative to executable", cxxopts::value<std::string>()/*->default_value("input.psd")*/)
+		("o,outdir", "output directory/assetpack name, absolute path or relative to executable", cxxopts::value<std::string>()/*->default_value("output")*/)
 		;
 	options.allow_unrecognised_options();
 
