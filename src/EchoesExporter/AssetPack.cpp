@@ -208,7 +208,7 @@ std::string SerializeAssetPack(const AssetPack& assetPack) {
 	root["pivots"] = pivots;
 
 	// materials
-	const float resizeRatio = ComputeResizeRatio(assetPack.pixelsPerDiagonalUnit);
+	//const float resizeRatio = ComputeResizeRatio(assetPack.pixelsPerDiagonalUnit);
 	Json::Value materials;
 	int matIdx = 0;
 	for (auto& spritePair : assetPack.spriteSets) {
@@ -216,6 +216,9 @@ std::string SerializeAssetPack(const AssetPack& assetPack) {
 		for (int baseLayerIdx = 0; baseLayerIdx < sprite.baseLayersData.size(); baseLayerIdx++) {
 			MaterialInfo mat;
 			mat.name = sprite.getBaseName();
+			if (sprite.baseLayersData.size() > 1) {
+				mat.name += "_part" + std::to_string(baseLayerIdx);
+			}
 			LOG("exporting material '%s'..", mat.name.c_str())
 			mat.mainTexPath = sprite.getBaseTexPath(baseLayerIdx);
 			mat.basePosition = sprite.minUnit;
@@ -250,10 +253,10 @@ std::string SerializeAssetPack(const AssetPack& assetPack) {
 	return stream.str();
 }
 
-bool ExportAssetPack(const AssetPack& assetPack, const std::string& outDir) {
+bool ExportAssetPack(const AssetPack& assetPack, const std::string& outDir, int cleanFirst) {
 
 	// remove everything from previous export
-	if (std::filesystem::exists(outDir)) {
+	if (cleanFirst > 0 && std::filesystem::exists(outDir)) {
 		std::filesystem::remove_all(outDir);
 	}
 

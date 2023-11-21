@@ -419,19 +419,22 @@ bool ReadDocument(const std::string& inFile, AssetPack& assetPack) {
 
 int main(int argc, const char* argv[]) {
 
-	cxxopts::Options options("EchoesExporter", "Repository link: https://github.com/miyehn/echoes-exporter\nDocumentation coming soon..");
+	cxxopts::Options options("EchoesExporter", "Repository link: https://github.com/miyehn/echoes-exporter\nDocumentation: https://docs.google.com/document/d/1baNgrlB1rL4iv3bOv5UMPJFIhPZEiBO-PChzEj8PPOw/edit#heading=h.w762mki0fcfe\n");
 	options.add_options()
 		("f,file", "input psd file, absolute path or relative to executable", cxxopts::value<std::string>()/*->default_value("input.psd")*/)
 		("o,outdir", "output directory/assetpack name, absolute path or relative to executable", cxxopts::value<std::string>()/*->default_value("output")*/)
+		("c,clean", "whether the existing output directory should be cleaned away first", cxxopts::value<int>()->default_value("0"))
 		;
 	options.allow_unrecognised_options();
 
 	auto result = options.parse(argc, argv);
 
 	std::string inFile, outDir;
+	int cleanFirst;
 	try {
 		inFile = result["file"].as<std::string>();
 		outDir = result["outdir"].as<std::string>();
+		cleanFirst = result["clean"].as<int>();
 		LOG("in: %s, out: %s", inFile.c_str(), outDir.c_str())
 	} catch (std::exception &e) {
 		std::cout << options.help() << std::endl;
@@ -446,13 +449,9 @@ int main(int argc, const char* argv[]) {
 		return 1;
 	}
 
-	ExportAssetPack(assetPack, outDir);
+	ExportAssetPack(assetPack, outDir, cleanFirst);
 
 #endif
-
-	vec2 testUnit = {1, -3};
-	vec2 testPx = UnitPosToPixelPos(testUnit, 298);
-	vec2 testUnitBack = PixelPosToUnitPos(testPx, 298);
 
 	LOG("done.")
 	return 0;

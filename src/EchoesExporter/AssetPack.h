@@ -66,7 +66,7 @@ struct AssetPack {
 
 std::vector<std::string> SplitTokens(const std::string& s);
 
-bool ExportAssetPack(const AssetPack& assetPack, const std::string& outDir);
+bool ExportAssetPack(const AssetPack& assetPack, const std::string& outDir, int cleanFirst);
 
 vec2 PixelPosToUnitPos(vec2 pixelPos, float workingPPDU);
 
