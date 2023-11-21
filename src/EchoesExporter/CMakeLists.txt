@@ -16,14 +16,19 @@ add_definitions(-DWINOS)
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG=1")
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DDEBUG=0")
 
-set(echoesexporter_source
-    EchoesExporter.cpp
+set(echoes_exporter_source_console
+    ConsoleMain.cpp
     AssetPack.cpp
     ../External/stb_image_write.cpp
     ../External/stb_image_resize.cpp
     ../External/jsoncpp.cpp
 )
 
-add_executable(${PROJECT_NAME} ${echoesexporter_source})
+set(echoes_exporter_source_win
+    WinMain.cpp
+)
 
-target_link_libraries(${PROJECT_NAME} Psd)
+add_executable(${PROJECT_NAME}_Console ${echoes_exporter_source_console})
+add_executable(${PROJECT_NAME}_Windowed WIN32 ${echoes_exporter_source_win})
+
+target_link_libraries(${PROJECT_NAME}_Console Psd)

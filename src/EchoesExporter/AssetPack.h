@@ -64,10 +64,6 @@ struct AssetPack {
 	float pixelsPerDiagonalUnit; // sqrt(2) = 1.41421356237
 };
 
-std::vector<std::string> SplitTokens(const std::string& s);
+bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack);
 
 bool ExportAssetPack(const AssetPack& assetPack, const std::string& outDir, int cleanFirst);
-
-vec2 PixelPosToUnitPos(vec2 pixelPos, float workingPPDU);
-
-vec2 UnitPosToPixelPos(vec2 unitPos, float workingPPDU);
