@@ -26,9 +26,14 @@ set(echoes_exporter_source_console
 
 set(echoes_exporter_source_win
     WinMain.cpp
+    AssetPack.cpp
+    ../External/stb_image_write.cpp
+    ../External/stb_image_resize.cpp
+    ../External/jsoncpp.cpp
 )
 
 add_executable(${PROJECT_NAME}_Console ${echoes_exporter_source_console})
 add_executable(${PROJECT_NAME}_Windowed WIN32 ${echoes_exporter_source_win})
 
 target_link_libraries(${PROJECT_NAME}_Console Psd)
+target_link_libraries(${PROJECT_NAME}_Windowed Psd)

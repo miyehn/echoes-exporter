@@ -5,6 +5,10 @@
 #include "cxxopts.hpp"
 #include "AssetPack.h"
 
+void AppendGUILog(const std::string& msg) {
+	// do nothing bc console doesn't have GUI
+}
+
 int main(int argc, const char* argv[]) {
 
 	cxxopts::Options options("EchoesExporter", "Repository link: https://github.com/miyehn/echoes-exporter\nDocumentation: https://docs.google.com/document/d/1baNgrlB1rL4iv3bOv5UMPJFIhPZEiBO-PChzEj8PPOw/edit#heading=h.w762mki0fcfe\n");

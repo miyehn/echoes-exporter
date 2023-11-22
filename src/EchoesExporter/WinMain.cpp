@@ -5,10 +5,13 @@
 // compile with: /D_UNICODE /DUNICODE /DWIN32 /D_WINDOWS /c
 
 #include <windows.h>
+#include <shellapi.h>
 #include <shobjidl.h>
 #include <stdlib.h>
 #include <string.h>
+#include <vector>
 #include <tchar.h>
+#include "AssetPack.h"
 #include "Log.h"
 
 // Global variables
@@ -16,7 +19,7 @@
 // The main window class name.
 static TCHAR szWindowClass[] = _T("EchoesExporter");
 // The string that appears in the application's title bar.
-static TCHAR szTitle[] = _T("Echoes Exporter");
+static TCHAR szTitle[] = _T("Echoes Exporter (version: 11/21/23)");
 
 // Stored instance handle for use in Win32 API calls such as FindResource
 HINSTANCE hInst;
@@ -27,12 +30,38 @@ LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 ///////////////////////////////////////////////
 
 #define CMD_DEBUG 1
+#define CMD_OPEN_PSD 2
+#define CMD_PSD_FORMATTING_DOC 3
+#define CMD_EXPORT_ASSETPACK 4
+#define CMD_SPRITECONVERTER_DOC 5
 
-static HWND hInputText = NULL;
-static HWND hList = NULL;
+#define WINDOW_WIDTH 640
+#define WINDOW_HEIGHT 720
+#define WINDOW_PADDING 10
+#define LOG_HEIGHT 200
+#define GAP_SMALL 5
+#define GAP_MEDIUM 10
+#define GAP_LARGE 20
+
+static std::string GUILog;
+static HWND hLogWnd = NULL;
+void AppendGUILog(const std::string& msg) {
+	GUILog += msg;
+	GUILog += "\r\n";
+	if (!SetWindowText(hLogWnd, _T(GUILog.c_str()))) {
+		ERR("Failed to update log text")
+	}
+	InvalidateRect(hLogWnd, NULL, true);
+	UpdateWindow(hLogWnd);
+}
+
+static AssetPack assetPack;
+
+static HWND hMaterialsList = NULL;
+void AddMenus(HWND hWnd);
 void AddContent(HWND hWnd);
 
-void TestCommand() {
+void CmdOpenPsd() {
 	EXPECT(SUCCEEDED(CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE)), true)
 
 	IFileOpenDialog *pFileOpen;
@@ -47,22 +76,56 @@ void TestCommand() {
 
 			std::wstring ws(pszFilePath);
 			std::string s(ws.begin(), ws.end());
-			LOG("%s", s.c_str())
+			LOG("reading PSD: %s", s.c_str())
 
-			if (hList != NULL) {
-				// https://learn.microsoft.com/en-us/windows/win32/controls/create-a-simple-list-box
-				int pos = SendMessage(hList, LB_ADDSTRING, NULL, (LPARAM)s.c_str());
-				uint32_t numItems = SendMessage(hList, LB_GETCOUNT, NULL, NULL);
-				SendMessage(hList, LB_SETITEMDATA, pos, (LPARAM)(numItems-1));
-				//int numSelected = SendMessage(hList, LB_GETSELCOUNT, NULL, NULL);
+			ASSERT(hMaterialsList != NULL)
 
+			// load psd file content
+			if (EchoesReadPsd(s, assetPack)) {
+				SendMessage(hMaterialsList, LB_RESETCONTENT, NULL, NULL);
+				int idx = 0;
+				for (auto& spritePair : assetPack.spriteSets) {
+					auto &sprite = spritePair.second;
+					std::string displayName = sprite.getBaseName();
+					if (sprite.baseLayersData.size() > 1) {
+						displayName += " (" + std::to_string(sprite.baseLayersData.size()) + " parts)";
+					}
+					if (sprite.lightLayerNames.size() > 0) {
+						displayName += " (" + std::to_string(sprite.lightLayerNames.size()) + " light";
+						if (sprite.lightLayerNames.size() > 1) {
+							displayName += "s";
+						}
+						displayName += ")";
+					}
+					int pos = SendMessage(hMaterialsList, LB_ADDSTRING, NULL, (LPARAM)displayName.c_str());
+					SendMessage(hMaterialsList, LB_SETITEMDATA, pos, (LPARAM)idx);
+					idx++;
+				}
 				// select all
+				uint32_t numItems = SendMessage(hMaterialsList, LB_GETCOUNT, NULL, NULL);
 				uint32_t lparam = ((numItems-1) << 16) | 0;
-				EXPECT(SendMessage(hList, LB_SELITEMRANGE, TRUE, lparam) != LB_ERR, true)
-				LOG("%i items total", numItems)
+				EXPECT(SendMessage(hMaterialsList, LB_SELITEMRANGE, TRUE, lparam) != LB_ERR, true)
+				std::string msg = "Successfully loaded " + std::to_string(numItems) + " sprite(s) from PSD.";
+				AppendGUILog(msg);
+			} else {
+				AppendGUILog("Failed to load PSD.");
+				assetPack = AssetPack(); // clear it anyway
 			}
+			InvalidateRect(hMaterialsList, NULL, true);
+			UpdateWindow(hMaterialsList);
 		}
 	}
+}
+
+void CmdExportAssetPack() {
+
+}
+
+void CmdPsdFormattingDoc() {
+	ShellExecute(0, 0, _T("https://docs.google.com/document/d/1rUcAj-sK-fXPAnCBTwqrQdLIPcEDpZkJkXL9nP_7WYQ/edit?usp=sharing"), 0, 0, SW_SHOW);
+}
+
+void TestCommand() {
 
 }
 
@@ -116,9 +179,9 @@ int WINAPI WinMain(
 		WS_EX_OVERLAPPEDWINDOW,
 		szWindowClass,
 		szTitle,
-		WS_OVERLAPPEDWINDOW,
+		WS_OVERLAPPEDWINDOW ^ WS_THICKFRAME,
 		CW_USEDEFAULT, CW_USEDEFAULT,
-		500, 300,
+		WINDOW_WIDTH, WINDOW_HEIGHT,
 		NULL,
 		NULL,
 		hInstance,
@@ -135,6 +198,7 @@ int WINAPI WinMain(
 		return 1;
 	}
 
+	AddMenus(hWnd);
 	AddContent(hWnd);
 
 	// The parameters to ShowWindow explained:
@@ -164,38 +228,31 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	PAINTSTRUCT ps;
 	HDC hdc;
-	TCHAR greeting[] = _T("Hello, Windows desktop!");
 
 	switch (message)
 	{
-		case WM_CREATE:
-			break;
-		case WM_INITDIALOG:
-			LOG("init dialog")
-			break;
 		case WM_COMMAND:
 			switch (wParam)
 			{
 				case CMD_DEBUG:
-					TCHAR inputText[128];
-					GetWindowText(hInputText, inputText, 128);
-					LOG("%s", inputText)
+					//TCHAR inputText[128];
+					//GetWindowText(hInputText, inputText, 128);
+					//LOG("%s", inputText)
 					TestCommand();
+					break;
+				case CMD_OPEN_PSD:
+					CmdOpenPsd();
+					break;
+				case CMD_PSD_FORMATTING_DOC:
+					CmdPsdFormattingDoc();
+					break;
+				case CMD_EXPORT_ASSETPACK:
+					CmdExportAssetPack();
 					break;
 			}
 			break;
 		case WM_PAINT:
-			hdc = BeginPaint(hWnd, &ps);
 
-			// Here your application is laid out.
-			// For this introduction, we just print out "Hello, Windows desktop!"
-			// in the top left corner.
-			TextOut(hdc,
-					5, 5,
-					greeting, _tcslen(greeting));
-			// End application-specific layout section.
-
-			EndPaint(hWnd, &ps);
 			break;
 		case WM_DESTROY:
 			PostQuitMessage(0);
@@ -210,36 +267,85 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
 // GetWindowText, SetWindowText
 
+void AddMenus(HWND hWnd) {
+
+	HMENU hFileMenu = CreateMenu();
+	AppendMenu(hFileMenu, MF_STRING, CMD_OPEN_PSD, "Open");
+	AppendMenu(hFileMenu, MF_STRING, CMD_EXPORT_ASSETPACK, "Export");
+
+	HMENU hHelpMenu = CreateMenu();
+	AppendMenu(hHelpMenu, MF_STRING, CMD_PSD_FORMATTING_DOC, "Formatting PSD for export");
+
+	HMENU hMenu = CreateMenu();
+	AppendMenu(hMenu, MF_POPUP, (UINT_PTR)hFileMenu, "File");
+	AppendMenu(hMenu, MF_POPUP, (UINT_PTR)hHelpMenu, "Help");
+
+	SetMenu(hWnd, hMenu);
+}
+
 void AddContent(HWND hWnd) {
 
-	HWND hDesc = CreateWindowEx(
-	0, WC_EDIT, _T("ababad fdasdfasf dasifaslf text wrap? more text more text\nmore text more text\n more text more text text text"),
-		WS_VISIBLE | WS_CHILD | WS_BORDER | ES_READONLY,
-		30, 31, 200, 50,
+	const uint32_t contentWidth = WINDOW_WIDTH - 2*GAP_MEDIUM - 2*WINDOW_PADDING;
+
+	// info
+	EXPECT(CreateWindowEx(
+		0, WC_EDIT, _T(
+			"1) Make sure you have your PSD formatted correctly\r\n"
+			"  - see \"Help -> Formatting PSD for export\" for instructions\r\n"
+			"2) Select your PSD from \"File -> Open\"\r\n"
+			"3) Confirm the selected sprites you want to export, do \"File -> Export\"\r\n"
+			"  - There should be no errors or warnings in the output log below.\r\n"
+			"4) Submit the entire exported folder\r\n"
+			"  - If you have perforce access, put it into \"Assets/03-Art Assets/AssetPacks\"\r\n"
+			"  - Otherwise, upload it to the Echoes google drive\r\n"
+			"\r\n"
+			"At or DM Rain (discord: @miyehn) for questions or feedback or anything else!"
+			),
+		WS_VISIBLE | WS_CHILD | ES_READONLY | ES_MULTILINE,
+		GAP_MEDIUM, GAP_LARGE, contentWidth, 180,
+		hWnd, nullptr, nullptr, nullptr
+	) != nullptr, true)
+
+	// list (title)
+	EXPECT(CreateWindowEx(
+		0, WC_STATIC, _T(
+			"Sprites to export:"
+		),
+		WS_VISIBLE | WS_CHILD,
+		GAP_MEDIUM, GAP_LARGE + 200, contentWidth, 20,
+		hWnd, nullptr, nullptr, nullptr
+	) != nullptr, true)
+	// list (content)
+	hMaterialsList = CreateWindowEx(
+		0, WC_LISTBOX, _T("materials list"),
+		WS_VISIBLE | WS_CHILD | WS_BORDER | LBS_MULTIPLESEL,
+		GAP_MEDIUM, GAP_LARGE + 220, contentWidth, 200,
 		hWnd, nullptr, nullptr, nullptr
 	);
-	EXPECT(hDesc != nullptr, true)
+	EXPECT(hMaterialsList != nullptr, true)
 
-	hInputText = CreateWindowEx(
-		0,_T("edit"), _T("edit me"),
-		WS_VISIBLE | WS_CHILD | WS_TABSTOP | ES_MULTILINE | ES_AUTOVSCROLL | WS_BORDER,
-		30, 61, 200, 50,
-		hWnd,nullptr,nullptr,nullptr
-	);
-	EXPECT(hInputText != nullptr, true)
-
+	// log (title)
 	EXPECT(CreateWindowEx(
-		0, WC_BUTTON, _T("debug log"),
+		0, WC_STATIC, _T("Output Log"),
+		WS_VISIBLE | WS_CHILD,
+		GAP_MEDIUM, WINDOW_HEIGHT-260, contentWidth, 20,
+		hWnd, nullptr, nullptr, nullptr
+		) != nullptr, true)
+	// log (content)
+	hLogWnd = CreateWindowEx(
+		0, WC_EDIT, _T(""),
+		WS_VISIBLE | WS_CHILD | ES_READONLY | ES_MULTILINE | ES_AUTOVSCROLL | WS_BORDER,
+		GAP_MEDIUM, WINDOW_HEIGHT-240, contentWidth, 170,
+		hWnd, nullptr, nullptr, nullptr
+		);
+	EXPECT(hLogWnd!=nullptr, true)
+
+	/*
+	EXPECT(CreateWindowEx(
+		0, WC_BUTTON, _T("debug btn"),
 		WS_VISIBLE | WS_CHILD,
 		30, 120, 80, 30,
 		hWnd, (HMENU)CMD_DEBUG, nullptr, nullptr
 		) != nullptr, true)
-
-	hList = CreateWindowEx(
-	0, WC_LISTBOX, _T("uhh"),
-		WS_VISIBLE | WS_CHILD | WS_BORDER | LBS_MULTIPLESEL,
-		20, 150, 200, 60,
-		hWnd, nullptr, nullptr, nullptr
-	);
-	EXPECT(hList != nullptr, true)
+	*/
 }

@@ -67,3 +67,5 @@ struct AssetPack {
 bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack);
 
 bool ExportAssetPack(const AssetPack& assetPack, const std::string& outDir, int cleanFirst);
+
+void AppendGUILog(const std::string& msg);
