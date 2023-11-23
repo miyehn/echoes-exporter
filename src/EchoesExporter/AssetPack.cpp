@@ -261,7 +261,7 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 
 	// open file
 	if (!file.OpenRead(fullPath.c_str())) {
-		AppendGUILog("Failed to open file!");
+		AppendGUILog("ERROR: Failed to open file!");
 		ERR("failed to open file")
 		return false;
 	}
@@ -269,8 +269,8 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 	// create document
 	psd::Document* document = psd::CreateDocument(&file, &allocator);
 	if (!document) {
-		AppendGUILog("ERROR: Failed to open file! Did you select a PSD document?");
-		LOG("failed to create psd document")
+		AppendGUILog("ERROR: Failed to open file! Was that a PSD document?");
+		WARN("failed to create psd document")
 		file.Close();
 		return false;
 	}
@@ -278,7 +278,7 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 	// check color mode
 	if (document->colorMode != psd::colorMode::RGB) {
 		AppendGUILog("ERROR: This PSD is not in RGB color mode");
-		LOG("psd is not in RGB color mode")
+		WARN("psd is not in RGB color mode")
 		file.Close();
 		return false;
 	}
@@ -286,7 +286,7 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 	// check bits per channel
 	if (document->bitsPerChannel != 8) {
 		AppendGUILog("ERROR: This PSD doesn't have 8 bits per channel");
-		LOG("this psd doesn't have 8 bits per channel")
+		WARN("this psd doesn't have 8 bits per channel")
 		file.Close();
 		return false;
 	}
@@ -295,7 +295,7 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 	auto section = psd::ParseLayerMaskSection(document, &file, &allocator);
 	if (!section) {
 		AppendGUILog("ERROR: failed to parse layer mask section");
-		LOG("failed to parse layer mask section")
+		WARN("failed to parse layer mask section")
 		file.Close();
 		return false;
 	}
