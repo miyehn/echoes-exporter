@@ -333,7 +333,10 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 		{
 			auto name = GetName(layer);
 			assetPack.spriteSets[name] = SpriteSet();
-			if (layer->layerMask) WARN("folder for sprite '%s' has a layer mask, which will be ignored during export..", name.c_str())
+			if (layer->layerMask) {
+				WARN("folder for sprite '%s' has a layer mask, which will be ignored during export..", name.c_str())
+				AppendGUILog("folder for sprite '" + name + "' has a layer mask, which will be ignored during export..");
+			}
 		}
 	}
 
@@ -349,9 +352,11 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 	auto ProcessSpriteMetaData = [&](Layer* layer) {
 		if (layer->layerMask) {
 			WARN("base layer(s) of '%s' has a layer mask, which will be ignored during export..", currentSpriteName.c_str())
+			AppendGUILog("base layer(s) of '" + currentSpriteName + "' has a layer mask, which will be ignored during export..");
 		}
 		if (blendMode::KeyToEnum(layer->blendModeKey) != blendMode::NORMAL) {
 			WARN("base layer of '%s' doesn't have normal blend mode- result might look different.", currentSpriteName.c_str())
+			AppendGUILog("base layer of '" + currentSpriteName + "' doesn't have normal blend mode- result might look different.");
 		}
 		// name
 		currentSprite->name = currentSpriteName;
@@ -412,9 +417,11 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 			// check if last sprite has position info fully parsed, give warning if not:
 			if (positionParseStatus != ParseDone) {
 				if (positionParseStatus == NotParsed) {
-					WARN("failed to parse position and size information for sprite %s; its pivot will be incorrect", currentSprite->name.c_str())
+					WARN("failed to parse position and size information for sprite %s; its pivot will be incorrect in Unity", currentSprite->name.c_str())
+					AppendGUILog("failed to parse position and size for sprite '" + currentSprite->name + "'; its pivot will be incorrect in Unity. Refer to documentation for how to specify position and size information for sprites");
 				} else if (positionParseStatus == ParsedSizeOnly) {
 					WARN("didn't find position information for sprite %s, its pivot will be incorrect: did you forget to include the 'corner' layer?", currentSprite->name.c_str())
+					AppendGUILog("didn't find position information for sprite '" + currentSprite->name + "', its pivot will be incorrect: did you forget to include the 'corner' layer?");
 				}
 				currentSprite->minUnit = {0, 0};
 				currentSprite->sizeUnit = {1, 1};
@@ -686,6 +693,9 @@ bool ExportAssetPack(const AssetPack& assetPack, const std::string& outDir, int 
 	// compute resize ratio
 	const float resizeRatio = ComputeResizeRatio(assetPack.pixelsPerDiagonalUnit);
 	LOG("resize ratio: %.3f", resizeRatio)
+	if (resizeRatio > 1) {
+		AppendGUILog("WARNING: resize ratio is %.3f (>1)");
+	}
 
 	for (auto& pair : assetPack.spriteSets) {
 

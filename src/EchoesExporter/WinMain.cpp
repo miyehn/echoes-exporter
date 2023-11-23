@@ -70,7 +70,7 @@ void ReadPsd(const std::string& filePath) {
 	// load psd file content
 	if (EchoesReadPsd(filePath, assetPack)) {
 		SendMessage(hMaterialsList, LB_RESETCONTENT, NULL, NULL);
-		int idx = 0;
+		int spritesCount = 0;
 		for (auto& spritePair : assetPack.spriteSets) {
 			auto &sprite = spritePair.second;
 			std::string displayName = sprite.getBaseName();
@@ -85,17 +85,14 @@ void ReadPsd(const std::string& filePath) {
 				displayName += ")";
 			}
 			int pos = SendMessage(hMaterialsList, LB_ADDSTRING, NULL, (LPARAM)displayName.c_str());
-			SendMessage(hMaterialsList, LB_SETITEMDATA, pos, (LPARAM)idx);
-			idx++;
+			SendMessage(hMaterialsList, LB_SETITEMDATA, pos, (LPARAM)spritesCount);
+			spritesCount++;
 		}
-		// select all
-		/*
-		uint32_t numItems = SendMessage(hMaterialsList, LB_GETCOUNT, NULL, NULL);
-		uint32_t lparam = ((numItems-1) << 16) | 0;
-		EXPECT(SendMessage(hMaterialsList, LB_SELITEMRANGE, TRUE, lparam) != LB_ERR, true)
-		*/
-		std::string msg = "Loaded " + std::to_string(idx) + " sprite(s).";
-		AppendGUILog(msg);
+		if (spritesCount > 0) {
+			AppendGUILog("Loaded " + std::to_string(spritesCount) + " sprite(s).");
+		} else {
+			AppendGUILog("WARNING: no sprites are loaded. Are you sure the PSD file is formatted correctly?");
+		}
 	} else {
 		AppendGUILog("Failed to load PSD.");
 	}
@@ -196,7 +193,7 @@ static inline void trim(std::string &s) {
 
 void CmdExportAssetPack() {
 	if (assetPack.spriteSets.size() == 0) {
-		ShowMessage( "Did you load your PSD file and selected the sprites to export?", "No sprites to export");
+		ShowMessage( "Did you load the PSD file correctly?", "No sprites to export");
 		return;
 	}
 
@@ -280,10 +277,10 @@ int WINAPI WinMain(
 	// hInstance: the first parameter from WinMain
 	// NULL: not used in this application
 	HWND hWnd = CreateWindowEx(
-		WS_EX_OVERLAPPEDWINDOW,
+		0,
 		szWindowClass,
 		szTitle,
-		WS_OVERLAPPEDWINDOW ^ WS_THICKFRAME,
+		WS_OVERLAPPEDWINDOW ^ WS_THICKFRAME ^ WS_MAXIMIZEBOX,
 		CW_USEDEFAULT, CW_USEDEFAULT,
 		WINDOW_WIDTH, WINDOW_HEIGHT,
 		NULL,
