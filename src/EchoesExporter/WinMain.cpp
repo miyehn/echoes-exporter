@@ -18,7 +18,7 @@
 // The main window class name.
 static TCHAR szWindowClass[] = _T("EchoesExporter");
 // The string that appears in the application's title bar.
-static TCHAR szTitle[] = _T("Echoes Exporter (version: 11/22/23)");
+static TCHAR szTitle[] = _T("Echoes Exporter (version: 11/30/23)");
 
 // Stored instance handle for use in Win32 API calls such as FindResource
 HINSTANCE hInst;
@@ -94,7 +94,7 @@ void ReadPsd(const std::string& filePath) {
 			AppendGUILog("WARNING: no sprites are loaded. Are you sure the PSD file is formatted correctly?");
 		}
 	} else {
-		AppendGUILog("Failed to load PSD.");
+		AppendGUILog("Failed to load PSD. Make sure your PSD is formatted correctly. If you're still not sure why, contact Rain.");
 	}
 	InvalidateRect(hMaterialsList, NULL, true);
 	UpdateWindow(hMaterialsList);
@@ -215,15 +215,20 @@ void CmdExportAssetPack() {
 	std::string fullPath = outDirectory + "\\" + assetPackName;
 
 	if (ExportAssetPack(assetPack, fullPath, 0)) {
-		AppendGUILog("Exported " + std::to_string(assetPack.spriteSets.size()) + " sprites. Now, submit this folder to perforce or google drive:");
+		AppendGUILog("Exported " + std::to_string(assetPack.spriteSets.size()) + " sprites to:");
 		AppendGUILog(fullPath);
+		AppendGUILog("If you have build access, continue by following \"Help -> Configuring sprites in Unity\". Otherwise, submit the above folder to our google drive.");
 	} else {
-		AppendGUILog("Failed to export asset pack");
+		AppendGUILog("Failed to export asset pack. Check the warnings/errors above (if any). Still not sure why? DM me (Rain) your psd file and let me take a look");
 	}
 }
 
 void CmdPsdFormattingDoc() {
 	ShellExecute(0, 0, _T("https://docs.google.com/document/d/1rUcAj-sK-fXPAnCBTwqrQdLIPcEDpZkJkXL9nP_7WYQ/edit?usp=sharing"), 0, 0, SW_SHOW);
+}
+
+void CmdSpriteConverterDoc() {
+	ShellExecute(0, 0, _T("https://docs.google.com/document/d/1PGAtx2exCd0odrkpP0Dy70wVBlfR2gZaDSlqFCF5uHM/edit?usp=sharing"), 0, 0, SW_SHOW);
 }
 
 void TestCommand() {
@@ -349,6 +354,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				case CMD_EXPORT_ASSETPACK:
 					CmdExportAssetPack();
 					break;
+				case CMD_SPRITECONVERTER_DOC:
+					CmdSpriteConverterDoc();
+					break;
 			}
 			break;
 		case WM_DROPFILES:
@@ -381,6 +389,7 @@ void AddMenus(HWND hWnd) {
 
 	HMENU hHelpMenu = CreateMenu();
 	AppendMenu(hHelpMenu, MF_STRING, CMD_PSD_FORMATTING_DOC, "Formatting PSD for export");
+	AppendMenu(hHelpMenu, MF_STRING, CMD_SPRITECONVERTER_DOC, "Configuring sprites in Unity");
 
 	HMENU hMenu = CreateMenu();
 	AppendMenu(hMenu, MF_POPUP, (UINT_PTR)hFileMenu, "File");
@@ -394,7 +403,7 @@ void AddContent(HWND hWnd) {
 	const uint32_t horizontalPadding = GAP_MEDIUM;
 	const uint32_t contentWidth = WINDOW_WIDTH - 2*horizontalPadding - 2*WINDOW_PADDING;
 
-	uint32_t currentHeight = GAP_LARGE;
+	uint32_t currentHeight = GAP_MEDIUM;
 	// info
 	EXPECT(CreateWindowEx(
 		0, WC_EDIT, _T(
@@ -403,16 +412,17 @@ void AddContent(HWND hWnd) {
 			"2) Select your PSD from \"File -> Open\" or drag it to the box below\r\n"
 			"3) Specify export destination and asset pack name, and hit \"Export\"\r\n"
 			"4) Submit the entire exported folder\r\n"
-			"  - If you have perforce access, put it into \"Assets/03-Art Assets/AssetPacks\"\r\n"
+			"  - If you have perforce access, put it into \"Assets/03-Art Assets/AssetPacks\" and follow\r\n"
+			"    \"Help -> Configuring sprites in Unity\"\r\n"
 			"  - Otherwise, upload it to the Echoes google drive\r\n"
 			"\r\n"
 			"At or DM Rain (discord: @miyehn) for questions or feedback or anything else!"
 			),
 		WS_VISIBLE | WS_CHILD | ES_READONLY | ES_MULTILINE,
-		horizontalPadding, currentHeight, contentWidth, 160,
+		horizontalPadding, currentHeight, contentWidth, 170,
 		hWnd, nullptr, nullptr, nullptr
 	) != nullptr, true)
-	currentHeight += 160 + GAP_MEDIUM;
+	currentHeight += 170 + GAP_MEDIUM;
 
 	// list (title)
 	EXPECT(CreateWindowEx(

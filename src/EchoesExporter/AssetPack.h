@@ -62,6 +62,8 @@ struct AssetPack {
 	vec2 docOriginPx;
 	uint32_t docWidth, docHeight;
 	float pixelsPerDiagonalUnit; // sqrt(2) = 1.41421356237
+
+	bool isValid() const;
 };
 
 bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack);

@@ -253,6 +253,20 @@ std::string JoinTokens(const std::vector<std::string> &tokens) {
 	return result;
 }
 
+bool AssetPack::isValid() const {
+	bool valid = true;
+	for (auto& spritePair : spriteSets) {
+		auto& sprite = spritePair.second;
+		if (sprite.baseLayersData.empty()) {
+			std::string baseName = sprite.getBaseName();
+			if (baseName.empty()) baseName = "(unknown)";
+			AppendGUILog("ERROR: sprite '" + baseName + "' doesn't have a base layer!");
+			valid = false;
+		}
+	}
+	return valid;
+}
+
 bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 
 	const std::wstring fullPath(inFile.c_str(), inFile.c_str() + inFile.length());
@@ -324,7 +338,7 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 				}
 			}
 		}
-			// export layers: just create something empty and insert into dict for now
+		// export layers: just create something empty and insert into dict for now
 		else if (
 			VisibleInHierarchy(layer) &&
 			(layer->type == layerType::OPEN_FOLDER || layer->type == layerType::CLOSED_FOLDER) &&
@@ -420,8 +434,8 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 					WARN("failed to parse position and size information for sprite %s; its pivot will be incorrect in Unity", currentSprite->name.c_str())
 					AppendGUILog("failed to parse position and size for sprite '" + currentSprite->name + "'; its pivot will be incorrect in Unity. Refer to documentation for how to specify position and size information for sprites");
 				} else if (positionParseStatus == ParsedSizeOnly) {
-					WARN("didn't find position information for sprite %s, its pivot will be incorrect: did you forget to include the 'corner' layer?", currentSprite->name.c_str())
-					AppendGUILog("didn't find position information for sprite '" + currentSprite->name + "', its pivot will be incorrect: did you forget to include the 'corner' layer?");
+					WARN("didn't find position information for sprite %s, its pivot will be incorrect in Unity: did you forget to include the 'corner' layer?", currentSprite->name.c_str())
+					AppendGUILog("didn't find position information for sprite '" + currentSprite->name + "', its pivot will be incorrect in Unity: did you forget to include the 'corner' layer?");
 				}
 				currentSprite->minUnit = {0, 0};
 				currentSprite->sizeUnit = {1, 1};
@@ -437,7 +451,7 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 			currentSprite->sizePx = { -(int)document->width, -(int)document->height };
 		}
 
-			// direct child of sprite folder, but folder --> base container
+		// direct child of sprite folder, but folder --> base container
 		else if (
 			currentSpriteFolder &&
 			layer->parent == currentSpriteFolder &&
@@ -446,7 +460,7 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 			if (!ProcessSpriteMetaData(layer)) return false;
 		}
 
-			// grand child of sprite folder, raster layer --> base content, maybe more than 1
+		// grand child of sprite folder, raster layer --> base content, maybe more than 1
 		else if (
 			currentSpriteFolder &&
 			layer->parent && layer->parent->parent == currentSpriteFolder &&
@@ -456,7 +470,7 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 			ExpandPixelBBox(layer);
 		}
 
-			// direct child of sprite folder, raster layer --> single base layer, or lightTex, or corner
+		// direct child of sprite folder, raster layer --> single base layer, or lightTex, or corner
 		else if (
 			currentSpriteFolder &&
 			layer->parent == currentSpriteFolder && layer->type == layerType::ANY) {
@@ -466,7 +480,7 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 				if (!ProcessSpriteLayerContent(currentSprite->baseLayersData, layer)) return false;
 				ExpandPixelBBox(layer);
 			}
-				// light tex
+			// light tex
 			else if (GetName(layer) != "corner") {
 				if (ProcessSpriteLayerContent(currentSprite->lightLayersData, layer)) {
 					currentSprite->lightLayerNames.emplace_back(GetName(layer));
@@ -474,7 +488,7 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 					return false;
 				}
 			}
-				// corner marker
+			// corner marker
 			else {
 				ASSERT(GetName(layer) == "corner")
 				if (positionParseStatus == ParsedSizeOnly) {
@@ -493,7 +507,7 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 	}
 
 	file.Close();
-	return true;
+	return assetPack.isValid();
 }
 
 
@@ -501,8 +515,8 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 
 #define EXPORT_PPU 100.0f
 
-
-void WritePngToDirectory(
+// returns if write is successful
+bool WritePngToDirectory(
 	const std::vector<uint8_t>& data,
 	uint32_t width, uint32_t height,
 	const std::string& outDir,
@@ -520,7 +534,7 @@ void WritePngToDirectory(
 		resizedData.data(), newWidth, newHeight, newWidth * 4, 4);
 
 	// write
-	EXPECT(stbi_write_png(fullpath.c_str(), newWidth, newHeight, 4, resizedData.data(), 4 * newWidth) != 0, true)
+	return stbi_write_png(fullpath.c_str(), newWidth, newHeight, 4, resizedData.data(), 4 * newWidth) != 0;
 }
 
 std::vector<uint8_t> Crop(const std::vector<uint8_t>& data, uint32_t srcStrideInBytes, ivec2 minPx, ivec2 sizePx) {
@@ -697,32 +711,33 @@ bool ExportAssetPack(const AssetPack& assetPack, const std::string& outDir, int 
 		AppendGUILog("WARNING: resize ratio is %.3f (>1)");
 	}
 
+	const std::string writeFileError = "ERROR: cannot write file(s). If you are updating existing sprites, make sure to first check them out in perforce.";
 	for (auto& pair : assetPack.spriteSets) {
 
 		const SpriteSet& sprite = pair.second;
 		for (int i = 0; i < sprite.baseLayersData.size(); i++) {
 			auto baseRegionData = Crop(sprite.baseLayersData[i], assetPack.docWidth * 4, sprite.minPx, sprite.sizePx);
-			WritePngToDirectory(
+			if (!WritePngToDirectory(
 				baseRegionData, sprite.sizePx.x, sprite.sizePx.y, outDir,
-				sprite.getBaseTexPath(i), resizeRatio);
+				sprite.getBaseTexPath(i), resizeRatio))
+			{
+				AppendGUILog(writeFileError);
+				return false;
+			}
 		}
 		for (int i = 0; i < sprite.lightLayersData.size(); i++) {
-			auto lightTexRegionData = Crop(sprite.lightLayersData[i], assetPack.docWidth * 4, sprite.minPx, sprite.sizePx);
-			WritePngToDirectory(
+			auto lightTexRegionData = Crop(sprite.lightLayersData[i], assetPack.docWidth * 4, sprite.minPx,
+										   sprite.sizePx);
+			if (!WritePngToDirectory(
 				lightTexRegionData, sprite.sizePx.x, sprite.sizePx.y, outDir,
-				sprite.getLightTexPath(i), resizeRatio);
+				sprite.getLightTexPath(i), resizeRatio))
+			{
+				AppendGUILog(writeFileError);
+				return false;
+			}
 		}
 	}
 
-	/*
-	std::string folderName = outDir.substr(outDir.find_last_of("/\\") + 1);
-	if (folderName.length() == 0) folderName = outDir;
-	LOG("finished saving png files, packing them into %s.zip..", folderName.c_str())
-
-	std::string fullCommand = "tar -cf " + outDir + ".tar " + outDir + "/*";
-	system(fullCommand.c_str());
-	 */
-#if 1
 	// also export a json
 	std::string outstr = SerializeAssetPack(assetPack);
 
@@ -734,11 +749,8 @@ bool ExportAssetPack(const AssetPack& assetPack, const std::string& outDir, int 
 		file << outstr;
 		file.close();
 	} else {
-		ASSERT(false)
+		AppendGUILog(writeFileError);
 		return false;
 	}
 	return true;
-#else
-	return true;
-#endif
 }
