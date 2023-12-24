@@ -260,7 +260,7 @@ bool AssetPack::isValid() const {
 		if (sprite.baseLayersData.empty()) {
 			std::string baseName = sprite.getBaseName();
 			if (baseName.empty()) baseName = "(unknown)";
-			AppendGUILog("ERROR: sprite '" + baseName + "' doesn't have a base layer!");
+			AppendToGUILog({LT_ERROR, "ERROR: sprite '" + baseName + "' doesn't have a base layer!"});
 			valid = false;
 		}
 	}
@@ -275,7 +275,7 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 
 	// open file
 	if (!file.OpenRead(fullPath.c_str())) {
-		AppendGUILog("ERROR: Failed to open file!");
+		AppendToGUILog({LT_ERROR, "ERROR: Failed to open file!"});
 		ERR("failed to open file")
 		return false;
 	}
@@ -283,7 +283,7 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 	// create document
 	psd::Document* document = psd::CreateDocument(&file, &allocator);
 	if (!document) {
-		AppendGUILog("ERROR: Failed to open file! Was that a PSD document?");
+		AppendToGUILog({LT_ERROR, "ERROR: Failed to open file! Was that a PSD document?"});
 		WARN("failed to create psd document")
 		file.Close();
 		return false;
@@ -291,7 +291,7 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 
 	// check color mode
 	if (document->colorMode != psd::colorMode::RGB) {
-		AppendGUILog("ERROR: This PSD is not in RGB color mode");
+		AppendToGUILog({LT_ERROR, "ERROR: This PSD is not in RGB color mode"});
 		WARN("psd is not in RGB color mode")
 		file.Close();
 		return false;
@@ -299,7 +299,7 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 
 	// check bits per channel
 	if (document->bitsPerChannel != 8) {
-		AppendGUILog("ERROR: This PSD doesn't have 8 bits per channel");
+		AppendToGUILog({LT_ERROR, "ERROR: This PSD doesn't have 8 bits per channel"});
 		WARN("this psd doesn't have 8 bits per channel")
 		file.Close();
 		return false;
@@ -308,7 +308,7 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 	// read section
 	auto section = psd::ParseLayerMaskSection(document, &file, &allocator);
 	if (!section) {
-		AppendGUILog("ERROR: failed to parse layer mask section");
+		AppendToGUILog({LT_ERROR, "ERROR: failed to parse layer mask section"});
 		WARN("failed to parse layer mask section")
 		file.Close();
 		return false;
@@ -349,7 +349,7 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 			assetPack.spriteSets[name] = SpriteSet();
 			if (layer->layerMask) {
 				WARN("folder for sprite '%s' has a layer mask, which will be ignored during export..", name.c_str())
-				AppendGUILog("folder for sprite '" + name + "' has a layer mask, which will be ignored during export..");
+				AppendToGUILog({LT_WARNING, "folder for sprite '" + name + "' has a layer mask, which will be ignored during export.."});
 			}
 		}
 	}
@@ -366,26 +366,33 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 	auto ProcessSpriteMetaData = [&](Layer* layer) {
 		if (layer->layerMask) {
 			WARN("base layer(s) of '%s' has a layer mask, which will be ignored during export..", currentSpriteName.c_str())
-			AppendGUILog("base layer(s) of '" + currentSpriteName + "' has a layer mask, which will be ignored during export..");
+			AppendToGUILog({LT_WARNING, "base layer(s) of '" + currentSpriteName + "' has a layer mask, which will be ignored during export.."});
 		}
 		if (blendMode::KeyToEnum(layer->blendModeKey) != blendMode::NORMAL) {
 			WARN("base layer of '%s' doesn't have normal blend mode- result might look different.", currentSpriteName.c_str())
-			AppendGUILog("base layer of '" + currentSpriteName + "' doesn't have normal blend mode- result might look different.");
+			AppendToGUILog({LT_WARNING, "base layer of '" + currentSpriteName + "' doesn't have normal blend mode- result might look different."});
 		}
 		// name
 		currentSprite->name = currentSpriteName;
 
 		// unit dims
 		auto tokens = SplitTokens(GetName(layer));
-		if (tokens.size() == 4) {
-			currentSprite->minUnit = {std::stof(tokens[0]), std::stof(tokens[1])};
-			currentSprite->sizeUnit = {std::stof(tokens[2]), std::stof(tokens[3])};
-			positionParseStatus = ParseDone;
-		} else if (tokens.size() == 2) {
-			currentSprite->sizeUnit = {std::stof(tokens[0]), std::stof(tokens[1])};
-			positionParseStatus = ParsedSizeOnly;
+		try {
+			if (tokens.size() == 4) {
+				currentSprite->minUnit = {std::stof(tokens[0]), std::stof(tokens[1])};
+				currentSprite->sizeUnit = {std::stof(tokens[2]), std::stof(tokens[3])};
+				positionParseStatus = ParseDone;
+			} else if (tokens.size() == 2) {
+				currentSprite->sizeUnit = {std::stof(tokens[0]), std::stof(tokens[1])};
+				positionParseStatus = ParsedSizeOnly;
+			}
+			return true;
+		} catch(std::exception &e) {
+			std::string msg = "Failed to parse position and size information for sprite '" + currentSprite->name + "'";
+			AppendToGUILog({LT_WARNING, msg + ". Did you name the base layer with 2 or 4 numbers?"});
+			WARN("%s: %s", msg.c_str(), e.what())
+			return false;
 		}
-		return true;
 	};
 	auto ExpandPixelBBox = [&](Layer* layer) {
 		// pixel dims
@@ -432,10 +439,10 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 			if (positionParseStatus != ParseDone) {
 				if (positionParseStatus == NotParsed) {
 					WARN("failed to parse position and size information for sprite %s; its pivot will be incorrect in Unity", currentSprite->name.c_str())
-					AppendGUILog("failed to parse position and size for sprite '" + currentSprite->name + "'; its pivot will be incorrect in Unity. Refer to documentation for how to specify position and size information for sprites");
+					AppendToGUILog({LT_WARNING, "failed to parse position and size for sprite '" + currentSprite->name + "'; its pivot will be incorrect in Unity. Refer to documentation for how to specify position and size information for sprites"});
 				} else if (positionParseStatus == ParsedSizeOnly) {
 					WARN("didn't find position information for sprite %s, its pivot will be incorrect in Unity: did you forget to include the 'corner' layer?", currentSprite->name.c_str())
-					AppendGUILog("didn't find position information for sprite '" + currentSprite->name + "', its pivot will be incorrect in Unity: did you forget to include the 'corner' layer?");
+					AppendToGUILog({LT_WARNING, "didn't find position information for sprite '" + currentSprite->name + "', its pivot will be incorrect in Unity: did you forget to include the 'corner' layer?"});
 				}
 				currentSprite->minUnit = {0, 0};
 				currentSprite->sizeUnit = {1, 1};
@@ -476,8 +483,14 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 			layer->parent == currentSpriteFolder && layer->type == layerType::ANY) {
 			// single base layer
 			if (prevLayer == currentSpriteDivider) {
-				if (!ProcessSpriteMetaData(layer)) return false;
-				if (!ProcessSpriteLayerContent(currentSprite->baseLayersData, layer)) return false;
+				if (!ProcessSpriteMetaData(layer)) {
+					file.Close();
+					return false;
+				}
+				if (!ProcessSpriteLayerContent(currentSprite->baseLayersData, layer)) {
+					file.Close();
+					return false;
+				}
 				ExpandPixelBBox(layer);
 			}
 			// light tex
@@ -708,7 +721,7 @@ bool ExportAssetPack(const AssetPack& assetPack, const std::string& outDir, int 
 	const float resizeRatio = ComputeResizeRatio(assetPack.pixelsPerDiagonalUnit);
 	LOG("resize ratio: %.3f", resizeRatio)
 	if (resizeRatio > 1) {
-		AppendGUILog("WARNING: resize ratio is %.3f (>1)");
+		AppendToGUILog({LT_WARNING, "WARNING: resize ratio is " + std::to_string(resizeRatio) + " (>1)"});
 	}
 
 	const std::string writeFileError = "ERROR: cannot write file(s). If you are updating existing sprites, make sure to first check them out in perforce.";
@@ -721,7 +734,7 @@ bool ExportAssetPack(const AssetPack& assetPack, const std::string& outDir, int 
 				baseRegionData, sprite.sizePx.x, sprite.sizePx.y, outDir,
 				sprite.getBaseTexPath(i), resizeRatio))
 			{
-				AppendGUILog(writeFileError);
+				AppendToGUILog({LT_ERROR, writeFileError});
 				return false;
 			}
 		}
@@ -732,7 +745,7 @@ bool ExportAssetPack(const AssetPack& assetPack, const std::string& outDir, int 
 				lightTexRegionData, sprite.sizePx.x, sprite.sizePx.y, outDir,
 				sprite.getLightTexPath(i), resizeRatio))
 			{
-				AppendGUILog(writeFileError);
+				AppendToGUILog({LT_ERROR, writeFileError});
 				return false;
 			}
 		}
@@ -749,7 +762,7 @@ bool ExportAssetPack(const AssetPack& assetPack, const std::string& outDir, int 
 		file << outstr;
 		file.close();
 	} else {
-		AppendGUILog(writeFileError);
+		AppendToGUILog({LT_ERROR, writeFileError});
 		return false;
 	}
 	return true;

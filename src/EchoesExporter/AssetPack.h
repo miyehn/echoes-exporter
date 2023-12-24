@@ -70,4 +70,15 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack);
 
 bool ExportAssetPack(const AssetPack& assetPack, const std::string& outDir, int cleanFirst);
 
-void AppendGUILog(const std::string& msg);
+///////////////// windows api specific:
+enum GUILogType: int {
+	LT_LOG = 0,
+	LT_SUCCESS = 1,
+	LT_WARNING = 2,
+	LT_ERROR = 3
+};
+struct GUILogEntry {
+	GUILogType type;
+	std::string msg;
+};
+void AppendToGUILog(const GUILogEntry &entry, bool clearFirst = false);

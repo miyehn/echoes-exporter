@@ -18,7 +18,7 @@
 // The main window class name.
 static TCHAR szWindowClass[] = _T("EchoesExporter");
 // The string that appears in the application's title bar.
-static TCHAR szTitle[] = _T("Echoes Exporter (version: 11/30/23)");
+static TCHAR szTitle[] = _T("Echoes Exporter (version: 12/23/23)");
 
 // Stored instance handle for use in Win32 API calls such as FindResource
 HINSTANCE hInst;
@@ -34,6 +34,7 @@ LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 #define CMD_BROWSE_SAVE_DIRECTORY 4
 #define CMD_SPRITECONVERTER_DOC 5
 #define CMD_EXPORT_ASSETPACK 6
+#define CMD_RELOAD_LAST_PSD_AND_EXPORT 7
 
 #define WINDOW_WIDTH 640
 #define WINDOW_HEIGHT 720
@@ -49,8 +50,9 @@ static HWND hLogWnd = NULL;
 static HWND hRootWnd = NULL;
 static HWND hSaveDirectory = NULL;
 static HWND hAssetPackName = NULL;
-void AppendGUILog(const std::string& msg) {
-	GUILog += msg;
+void AppendToGUILog(const GUILogEntry &entry, bool clearFirst) {
+	if (clearFirst) GUILog = "";
+	GUILog += entry.msg;
 	GUILog += "\r\n";
 	if (!SetWindowText(hLogWnd, _T(GUILog.c_str()))) {
 		ERR("Failed to update log text")
@@ -65,10 +67,26 @@ static HWND hMaterialsList = NULL;
 void AddMenus(HWND hWnd);
 void AddContent(HWND hWnd);
 
-void ReadPsd(const std::string& filePath) {
+static GUID openPsdGUID = {
+	1700158156, 55139, 19343, {137, 123, 65, 113}
+};
+static GUID exportPathGUID = {
+	1308487700, 50820, 18963, {143, 61, 205, 250}
+};
+
+bool ReadPsd(const std::string& InFilePath, bool useLastPath = false) {
 	assetPack = AssetPack(); // clear it first
+	static std::string lastFilePath;
+	std::string filePath;
+	if (useLastPath) {
+		filePath = lastFilePath;
+	} else {
+		filePath = InFilePath;
+		lastFilePath = InFilePath;
+	}
 	// load psd file content
-	if (EchoesReadPsd(filePath, assetPack)) {
+	bool success = EchoesReadPsd(filePath, assetPack);
+	if (success) {
 		SendMessage(hMaterialsList, LB_RESETCONTENT, NULL, NULL);
 		int spritesCount = 0;
 		for (auto& spritePair : assetPack.spriteSets) {
@@ -89,15 +107,16 @@ void ReadPsd(const std::string& filePath) {
 			spritesCount++;
 		}
 		if (spritesCount > 0) {
-			AppendGUILog("Loaded " + std::to_string(spritesCount) + " sprite(s).");
+			AppendToGUILog({LT_LOG, "Loaded " + std::to_string(spritesCount) + " sprite(s)."}, true);
 		} else {
-			AppendGUILog("WARNING: no sprites are loaded. Are you sure the PSD file is formatted correctly?");
+			AppendToGUILog({LT_WARNING, "WARNING: no sprites are loaded. Are you sure the PSD file is formatted correctly?"});
 		}
 	} else {
-		AppendGUILog("Failed to load PSD. Make sure your PSD is formatted correctly. If you're still not sure why, contact Rain.");
+		AppendToGUILog({LT_ERROR, "Failed to load PSD. Make sure your PSD is formatted correctly. If you're still not sure why, contact Rain."});
 	}
 	InvalidateRect(hMaterialsList, NULL, true);
 	UpdateWindow(hMaterialsList);
+	return success;
 }
 
 void CmdOpenPsd() {
@@ -106,7 +125,8 @@ void CmdOpenPsd() {
 
 	IFileOpenDialog *pFileOpen;
 	EXPECT(SUCCEEDED(CoCreateInstance(
-		CLSID_FileOpenDialog, NULL, CLSCTX_ALL, IID_IFileOpenDialog, reinterpret_cast<void**>(&pFileOpen))), true);
+		CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER, IID_IFileOpenDialog, reinterpret_cast<void**>(&pFileOpen))), true);
+	pFileOpen->SetClientGuid(openPsdGUID);
 
 	const COMDLG_FILTERSPEC fileTypes[] = {{L"PSD documents (*.psd)", L"*.psd"}};
 	if (!SUCCEEDED(pFileOpen->SetFileTypes(ARRAYSIZE(fileTypes), fileTypes))) return;
@@ -132,7 +152,8 @@ void CmdBrowseSaveDirectory() {
 	EXPECT(SUCCEEDED(hr), true)
 
 	IFileOpenDialog *pFileDialog;
-	if (!SUCCEEDED(CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_ALL, IID_PPV_ARGS(&pFileDialog)))) return;
+	if (!SUCCEEDED(CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pFileDialog)))) return;
+	pFileDialog->SetClientGuid(exportPathGUID);
 
 	DWORD curOptions;
 	if (!SUCCEEDED(pFileDialog->GetOptions(&curOptions))) return;
@@ -215,11 +236,11 @@ void CmdExportAssetPack() {
 	std::string fullPath = outDirectory + "\\" + assetPackName;
 
 	if (ExportAssetPack(assetPack, fullPath, 0)) {
-		AppendGUILog("Exported " + std::to_string(assetPack.spriteSets.size()) + " sprites to:");
-		AppendGUILog(fullPath);
-		AppendGUILog("If you have build access, continue by following \"Help -> Configuring sprites in Unity\". Otherwise, submit the above folder to our google drive.");
+		AppendToGUILog({LT_SUCCESS, "Exported " + std::to_string(assetPack.spriteSets.size()) + " sprites to:"});
+		AppendToGUILog({LT_SUCCESS, fullPath});
+		AppendToGUILog({LT_LOG, "If you have build access, continue by following \"Help -> Configuring sprites in Unity\". Otherwise, submit the above folder to our google drive."});
 	} else {
-		AppendGUILog("Failed to export asset pack. Check the warnings/errors above (if any). Still not sure why? DM me (Rain) your psd file and let me take a look");
+		AppendToGUILog({LT_ERROR, "Failed to export asset pack. Check the warnings/errors above (if any). Still not sure why? DM me (Rain) your psd file and let me take a look"});
 	}
 }
 
@@ -229,6 +250,12 @@ void CmdPsdFormattingDoc() {
 
 void CmdSpriteConverterDoc() {
 	ShellExecute(0, 0, _T("https://docs.google.com/document/d/1PGAtx2exCd0odrkpP0Dy70wVBlfR2gZaDSlqFCF5uHM/edit?usp=sharing"), 0, 0, SW_SHOW);
+}
+
+void CmdReloadLastPsdAndExport() {
+	if (ReadPsd("", true)) {
+		CmdExportAssetPack();
+	}
 }
 
 void TestCommand() {
@@ -333,7 +360,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	PAINTSTRUCT ps;
 	HDC hdc;
-
 	switch (message)
 	{
 		case WM_COMMAND:
@@ -357,6 +383,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				case CMD_SPRITECONVERTER_DOC:
 					CmdSpriteConverterDoc();
 					break;
+				case CMD_RELOAD_LAST_PSD_AND_EXPORT:
+					CmdReloadLastPsdAndExport();
+					break;
 			}
 			break;
 		case WM_DROPFILES:
@@ -371,13 +400,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			break;
 		}
 		case WM_DESTROY:
+		{
+			// delete solid brush?
 			PostQuitMessage(0);
 			break;
+		}
 		default:
 			return DefWindowProc(hWnd, message, wParam, lParam);
 			break;
 	}
-
 	return 0;
 }
 
@@ -411,18 +442,16 @@ void AddContent(HWND hWnd) {
 			"  - see \"Help -> Formatting PSD for export\" for instructions\r\n"
 			"2) Select your PSD from \"File -> Open\" or drag it to the box below\r\n"
 			"3) Specify export destination and asset pack name, and hit \"Export\"\r\n"
-			"4) Submit the entire exported folder\r\n"
-			"  - If you have perforce access, put it into \"Assets/03-Art Assets/AssetPacks\" and follow\r\n"
-			"    \"Help -> Configuring sprites in Unity\"\r\n"
-			"  - Otherwise, upload it to the Echoes google drive\r\n"
+			"  - or use the button below to re-export your last PSD\r\n"
+			"4) Submit the entire exported folder by following instructions in the output log\r\n"
 			"\r\n"
 			"At or DM Rain (discord: @miyehn) for questions or feedback or anything else!"
 			),
 		WS_VISIBLE | WS_CHILD | ES_READONLY | ES_MULTILINE,
-		horizontalPadding, currentHeight, contentWidth, 170,
+		horizontalPadding, currentHeight, contentWidth, 130,
 		hWnd, nullptr, nullptr, nullptr
 	) != nullptr, true)
-	currentHeight += 170 + GAP_MEDIUM;
+	currentHeight += 130 + GAP_MEDIUM;
 
 	// list (title)
 	EXPECT(CreateWindowEx(
@@ -438,11 +467,11 @@ void AddContent(HWND hWnd) {
 	hMaterialsList = CreateWindowEx(
 		WS_EX_ACCEPTFILES, WC_LISTBOX, _T("materials list"),
 		WS_VISIBLE | WS_CHILD | WS_BORDER | LBS_NOSEL | WS_VSCROLL,
-		horizontalPadding, currentHeight, contentWidth, 160,
+		horizontalPadding, currentHeight, contentWidth, 170,
 		hWnd, nullptr, nullptr, nullptr
 	);
 	EXPECT(hMaterialsList != nullptr, true)
-	currentHeight += 160;
+	currentHeight += 170;
 
 	const uint32_t descrLen = 140;
 	const uint32_t btnLen = 100;
@@ -493,6 +522,22 @@ void AddContent(HWND hWnd) {
 		currentHeight += 20 + GAP_MEDIUM;
 	}
 
+	{// Reload last PSD document and export
+		EXPECT(CreateWindowEx(
+			0, WC_STATIC, _T("Or:"),
+			WS_VISIBLE | WS_CHILD,
+			horizontalPadding, currentHeight, 60, 20,
+			hWnd, nullptr, nullptr, nullptr
+		) != nullptr, true)
+		EXPECT(CreateWindowEx(
+			0, WC_BUTTON, _T("Reload last PSD document and export to above destination"),
+			WS_VISIBLE | WS_CHILD,
+			60 + horizontalPadding, currentHeight, contentWidth - 60, 20,
+			hWnd, (HMENU)CMD_RELOAD_LAST_PSD_AND_EXPORT, nullptr, nullptr
+		) != nullptr, true)
+		currentHeight += 20 + GAP_MEDIUM;
+	}
+
 	// log (title)
 	EXPECT(CreateWindowEx(
 		0, WC_STATIC, _T("Output Log"),
@@ -506,7 +551,7 @@ void AddContent(HWND hWnd) {
 	hLogWnd = CreateWindowEx(
 		0, WC_EDIT, _T(""),
 		WS_VISIBLE | WS_CHILD | ES_READONLY | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL | WS_BORDER,
-		horizontalPadding, currentHeight, contentWidth, 200,
+		horizontalPadding, currentHeight, contentWidth, LOG_HEIGHT,
 		hWnd, nullptr, nullptr, nullptr
 		);
 	EXPECT(hLogWnd!=nullptr, true)
