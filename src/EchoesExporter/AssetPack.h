@@ -45,6 +45,7 @@ struct SpriteSet {
 	std::vector<std::vector<uint8_t>> baseLayersData;
 	std::vector<std::vector<uint8_t>> lightLayersData;
 	std::vector<std::string> lightLayerNames;
+	std::vector<uint8_t> emissionMaskData;
 	// rel to doc canvas, in pixels
 	ivec2 minPx;
 	ivec2 sizePx;
@@ -55,6 +56,7 @@ struct SpriteSet {
 	std::string getBaseName() const;
 	std::string getBaseTexPath(int index) const;
 	std::string getLightTexPath(int index) const;
+	std::string getEmissionTexPath() const;
 };
 
 struct AssetPack {

@@ -95,6 +95,9 @@ bool ReadPsd(const std::string& InFilePath, bool useLastPath = false) {
 			if (sprite.baseLayersData.size() > 1) {
 				displayName += " (" + std::to_string(sprite.baseLayersData.size()) + " parts)";
 			}
+			if (sprite.emissionMaskData.size() > 0) {
+				displayName += " (w emission)";
+			}
 			if (sprite.lightLayerNames.size() > 0) {
 				displayName += " (" + std::to_string(sprite.lightLayerNames.size()) + " light";
 				if (sprite.lightLayerNames.size() > 1) {

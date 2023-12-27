@@ -411,7 +411,7 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 		currentSprite->minPx = minPx;
 		currentSprite->sizePx = { maxPx.x - minPx.x, maxPx.y - minPx.y };
 	};
-	auto ProcessSpriteLayerContent = [&](std::vector<std::vector<uint8_t>>& dst, Layer* layer) {
+	auto ProcessSpriteBaseOrLightLayerContent = [&](std::vector<std::vector<uint8_t>>& dst, Layer* layer) {
 		ASSERT(layer->type == layerType::ANY)
 		uint8_t* layerData = GetLayerData(document, &file, allocator, layer);
 		if (!layerData) {
@@ -420,6 +420,21 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 		dst.emplace_back();
 		dst.back().resize(layerDataSize);
 		memcpy(dst.back().data(), layerData, layerDataSize);
+		allocator.Free(layerData);
+		return true;
+	};
+	auto ProcessSpriteEmissionMaskContent = [&](std::vector<uint8_t>& dst, Layer* layer) {
+		ASSERT(layer->type == layerType::ANY)
+		uint8_t* layerData = GetLayerData(document, &file, allocator, layer);
+		if (!layerData) {
+			file.Close(); return false;
+		}
+		uint32_t numPx = document->width * document->height;
+		// we only want the alpha channel
+		dst.resize(numPx);
+		for (uint32_t i = 0; i < numPx; i++) {
+			dst[i] = layerData[i * 4 + 3];
+		}
 		allocator.Free(layerData);
 		return true;
 	};
@@ -460,7 +475,6 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 
 		// direct child of sprite folder, but folder --> base container
 		else if (
-			currentSpriteFolder &&
 			layer->parent == currentSpriteFolder &&
 			(layer->type == layerType::CLOSED_FOLDER || layer->type == layerType::OPEN_FOLDER)
 			) {
@@ -469,17 +483,15 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 
 		// grand child of sprite folder, raster layer --> base content, maybe more than 1
 		else if (
-			currentSpriteFolder &&
 			layer->parent && layer->parent->parent == currentSpriteFolder &&
 			layer->type == layerType::ANY
 			) {
-			if (!ProcessSpriteLayerContent(currentSprite->baseLayersData, layer)) return false;
+			if (!ProcessSpriteBaseOrLightLayerContent(currentSprite->baseLayersData, layer)) return false;
 			ExpandPixelBBox(layer);
 		}
 
 		// direct child of sprite folder, raster layer --> single base layer, or lightTex, or corner
 		else if (
-			currentSpriteFolder &&
 			layer->parent == currentSpriteFolder && layer->type == layerType::ANY) {
 			// single base layer
 			if (prevLayer == currentSpriteDivider) {
@@ -487,23 +499,14 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 					file.Close();
 					return false;
 				}
-				if (!ProcessSpriteLayerContent(currentSprite->baseLayersData, layer)) {
+				if (!ProcessSpriteBaseOrLightLayerContent(currentSprite->baseLayersData, layer)) {
 					file.Close();
 					return false;
 				}
 				ExpandPixelBBox(layer);
 			}
-			// light tex
-			else if (GetName(layer) != "corner") {
-				if (ProcessSpriteLayerContent(currentSprite->lightLayersData, layer)) {
-					currentSprite->lightLayerNames.emplace_back(GetName(layer));
-				} else {
-					return false;
-				}
-			}
 			// corner marker
-			else {
-				ASSERT(GetName(layer) == "corner")
+			else if (GetName(layer) == "corner") {
 				if (positionParseStatus == ParsedSizeOnly) {
 					vec2 cornerPosPx = {
 						(layer->right + layer->left) * 0.5f,
@@ -513,6 +516,19 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 					currentSprite->minUnit = PixelPosToUnitPos(cornerPosPx, assetPack.pixelsPerDiagonalUnit);
 
 					positionParseStatus = ParseDone;
+				}
+			}
+			else if (GetName(layer) == "emission") {
+				if (!ProcessSpriteEmissionMaskContent(currentSprite->emissionMaskData, layer)) {
+					return false;
+				}
+			}
+			// light tex
+			else {
+				if (ProcessSpriteBaseOrLightLayerContent(currentSprite->lightLayersData, layer)) {
+					currentSprite->lightLayerNames.emplace_back(GetName(layer));
+				} else {
+					return false;
 				}
 			}
 		}
@@ -531,7 +547,7 @@ bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
 // returns if write is successful
 bool WritePngToDirectory(
 	const std::vector<uint8_t>& data,
-	uint32_t width, uint32_t height,
+	uint32_t width, uint32_t height, uint32_t numChannels,
 	const std::string& outDir,
 	const std::string& fileName,
 	float resizeRatio = 1.0f
@@ -541,20 +557,20 @@ bool WritePngToDirectory(
 	// resize
 	uint32_t newWidth = std::ceil(width * resizeRatio);
 	uint32_t newHeight = std::ceil(height * resizeRatio);
-	std::vector<uint8_t> resizedData(newWidth * newHeight * 4);
+	std::vector<uint8_t> resizedData(newWidth * newHeight * numChannels);
 	stbir_resize_uint8(
-		data.data(), width, height, width * 4,
-		resizedData.data(), newWidth, newHeight, newWidth * 4, 4);
+		data.data(), width, height, width * numChannels,
+		resizedData.data(), newWidth, newHeight, newWidth * numChannels, numChannels);
 
 	// write
-	return stbi_write_png(fullpath.c_str(), newWidth, newHeight, 4, resizedData.data(), 4 * newWidth) != 0;
+	return stbi_write_png(fullpath.c_str(), newWidth, newHeight, numChannels, resizedData.data(), numChannels * newWidth) != 0;
 }
 
-std::vector<uint8_t> Crop(const std::vector<uint8_t>& data, uint32_t srcStrideInBytes, ivec2 minPx, ivec2 sizePx) {
-	std::vector<uint8_t> result(sizePx.x * sizePx.y * 4);
-	uint32_t dstStrideInBytes = sizePx.x * 4;
+std::vector<uint8_t> Crop(const std::vector<uint8_t>& data, uint32_t srcStrideInBytes, uint32_t numChannels, ivec2 minPx, ivec2 sizePx) {
+	std::vector<uint8_t> result(sizePx.x * sizePx.y * numChannels);
+	uint32_t dstStrideInBytes = sizePx.x * numChannels;
 	for (int i = 0; i < sizePx.y; i++) {
-		uint32_t srcStart = (minPx.y + i) * srcStrideInBytes + minPx.x * 4;
+		uint32_t srcStart = (minPx.y + i) * srcStrideInBytes + minPx.x * numChannels;
 		uint32_t dstStart = i * dstStrideInBytes;
 		memcpy(result.data() + dstStart, data.data() + srcStart, dstStrideInBytes);
 	}
@@ -582,6 +598,7 @@ struct PivotInfo {
 struct MaterialInfo {
 	std::string name;
 	std::string mainTexPath;
+	std::string emissionTexPath;
 	std::string light0TexPath;
 	std::string light0Message = "(none)";
 	std::string light1TexPath;
@@ -596,6 +613,7 @@ struct MaterialInfo {
 		Json::Value result;
 		result["name"] = name;
 		result["mainTexPath"] = mainTexPath;
+		result["emissionTexPath"] = emissionTexPath;
 		result["light0TexPath"] = light0TexPath;
 		result["light0Message"] = light0Message;
 		result["light1TexPath"] = light1TexPath;
@@ -623,6 +641,10 @@ std::string SpriteSet::getLightTexPath(int index) const {
 	return getBaseName() + "_L" + std::to_string(index) +".png";
 }
 
+std::string SpriteSet::getEmissionTexPath() const {
+	return getBaseName() + "_emission.png";
+}
+
 float ComputeResizeRatio(float pixelsPerDiagonalUnit) {
 	const float standardPPDU = std::sqrt(2.0f) * EXPORT_PPU;
 	const float resizeRatio = standardPPDU / pixelsPerDiagonalUnit;
@@ -637,7 +659,7 @@ float ComputeResizeRatio(float pixelsPerDiagonalUnit) {
 std::string SerializeAssetPack(const AssetPack& assetPack) {
 	Json::Value root;
 
-	// pivots
+	// pivots (only base layers need them; others are just used as shader textures)
 	Json::Value pivots;
 	int pivotIdx = 0;
 	for (auto& spritePair : assetPack.spriteSets) {
@@ -662,7 +684,6 @@ std::string SerializeAssetPack(const AssetPack& assetPack) {
 	root["pivots"] = pivots;
 
 	// materials
-	//const float resizeRatio = ComputeResizeRatio(assetPack.pixelsPerDiagonalUnit);
 	Json::Value materials;
 	int matIdx = 0;
 	for (auto& spritePair : assetPack.spriteSets) {
@@ -696,6 +717,11 @@ std::string SerializeAssetPack(const AssetPack& assetPack) {
 				}
 				else ASSERT(false)
 			}
+			// emission
+			if (!sprite.emissionMaskData.empty()) {
+				mat.emissionTexPath = sprite.getEmissionTexPath();
+			}
+
 			materials[matIdx] = mat.serialized();
 			matIdx++;
 		}
@@ -729,9 +755,9 @@ bool ExportAssetPack(const AssetPack& assetPack, const std::string& outDir, int 
 
 		const SpriteSet& sprite = pair.second;
 		for (int i = 0; i < sprite.baseLayersData.size(); i++) {
-			auto baseRegionData = Crop(sprite.baseLayersData[i], assetPack.docWidth * 4, sprite.minPx, sprite.sizePx);
+			auto baseRegionData = Crop(sprite.baseLayersData[i], assetPack.docWidth * 4, 4, sprite.minPx, sprite.sizePx);
 			if (!WritePngToDirectory(
-				baseRegionData, sprite.sizePx.x, sprite.sizePx.y, outDir,
+				baseRegionData, sprite.sizePx.x, sprite.sizePx.y, 4, outDir,
 				sprite.getBaseTexPath(i), resizeRatio))
 			{
 				AppendToGUILog({LT_ERROR, writeFileError});
@@ -739,11 +765,22 @@ bool ExportAssetPack(const AssetPack& assetPack, const std::string& outDir, int 
 			}
 		}
 		for (int i = 0; i < sprite.lightLayersData.size(); i++) {
-			auto lightTexRegionData = Crop(sprite.lightLayersData[i], assetPack.docWidth * 4, sprite.minPx,
+			auto lightTexRegionData = Crop(sprite.lightLayersData[i], assetPack.docWidth * 4, 4, sprite.minPx,
 										   sprite.sizePx);
 			if (!WritePngToDirectory(
-				lightTexRegionData, sprite.sizePx.x, sprite.sizePx.y, outDir,
+				lightTexRegionData, sprite.sizePx.x, sprite.sizePx.y, 4, outDir,
 				sprite.getLightTexPath(i), resizeRatio))
+			{
+				AppendToGUILog({LT_ERROR, writeFileError});
+				return false;
+			}
+		}
+		// emission
+		if (!sprite.emissionMaskData.empty()) {
+			auto croppedEmissionMask = Crop(sprite.emissionMaskData, assetPack.docWidth, 1, sprite.minPx, sprite.sizePx);
+			if (!WritePngToDirectory(
+				croppedEmissionMask, sprite.sizePx.x, sprite.sizePx.y, 1, outDir,
+				sprite.getEmissionTexPath(), resizeRatio))
 			{
 				AppendToGUILog({LT_ERROR, writeFileError});
 				return false;
