@@ -37,7 +37,7 @@ int main(int argc, const char* argv[]) {
 
 #if 1
 	AssetPack assetPack;
-	if (!EchoesReadPsd(inFile, assetPack)) {
+	if (!EchoesReadPsdToAssetPack(inFile, assetPack)) {
 		return 1;
 	}
 

@@ -1,0 +1,15 @@
+# entire packs
+AnjuHighWalls/.*
+DecoIslands/.*
+FaerieRing/.*
+Grass/.*
+GrassCornerTiles/.*
+SingleGrass/.*
+spikeTrap/.*
+SpikeTrapV2/.*
+Unwalkable/.*
+Unwalkable2/.*
+
+# some props from water test might still be useful
+WaterTest/Underwater.*
+WaterTest/Base.*

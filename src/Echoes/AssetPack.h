@@ -68,7 +68,7 @@ struct AssetPack {
 	bool isValid() const;
 };
 
-bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack);
+bool EchoesReadPsdToAssetPack(const std::string& inFile, AssetPack& assetPack);
 
 bool ExportAssetPack(const AssetPack& assetPack, const std::string& outDir, int cleanFirst);
 

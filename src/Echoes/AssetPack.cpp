@@ -267,7 +267,7 @@ bool AssetPack::isValid() const {
 	return valid;
 }
 
-bool EchoesReadPsd(const std::string& inFile, AssetPack& assetPack) {
+bool EchoesReadPsdToAssetPack(const std::string& inFile, AssetPack& assetPack) {
 
 	const std::wstring fullPath(inFile.c_str(), inFile.c_str() + inFile.length());
 	psd::MallocAllocator allocator;

@@ -7,7 +7,7 @@ cmake_minimum_required(VERSION 3.2)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-project(EchoesExporter)
+project(Echoes)
 
 include_directories(../External)
 
@@ -32,8 +32,16 @@ set(echoes_exporter_source_win
     ../External/jsoncpp.cpp
 )
 
-add_executable(${PROJECT_NAME}_Console ${echoes_exporter_source_console})
-add_executable(${PROJECT_NAME}_Windowed WIN32 ${echoes_exporter_source_win})
+set(echoes_gather_sprites_source
+    GatherSprites.cpp
+    ../External/stb_image.cpp
+    ../External/jsoncpp.cpp
+)
 
-target_link_libraries(${PROJECT_NAME}_Console Psd)
-target_link_libraries(${PROJECT_NAME}_Windowed Psd)
+add_executable(${PROJECT_NAME}Exporter_Console ${echoes_exporter_source_console})
+add_executable(${PROJECT_NAME}Exporter_Windowed WIN32 ${echoes_exporter_source_win})
+add_executable(${PROJECT_NAME}GatherSprites ${echoes_gather_sprites_source})
+
+target_link_libraries(${PROJECT_NAME}Exporter_Console Psd)
+target_link_libraries(${PROJECT_NAME}Exporter_Windowed Psd)
+target_link_libraries(${PROJECT_NAME}GatherSprites Psd)
