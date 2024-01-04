@@ -2,9 +2,8 @@
 // Created by miyehn on 12/27/2023.
 //
 // import
-#include <filesystem>
-#include <fstream>
 #include <regex>
+#include <filesystem>
 
 #include "../Psd/Psd.h"
 #include "../Psd/PsdMallocAllocator.h"
@@ -15,36 +14,11 @@
 
 #include "Log.h"
 #include "Utils.h"
+#include "AssetPack.h"
 
 #include "cxxopts.hpp"
 #include "../External/stb_image.h"
 #include "json/json.h"
-
-std::string ReadFileAsString(const std::string& path) {
-	std::ifstream file(path, std::ios::ate);
-	EXPECT_M(file.is_open(), true, "failed to open file '%s'", path.c_str())
-	size_t size = file.tellg();
-	std::string outStr;
-	outStr.reserve(size);
-	file.seekg(0);
-	outStr.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
-	file.close();
-	return outStr;
-}
-
-std::vector<std::string> SplitLines(const std::string& str) {
-	std::vector<std::string> result;
-	int start = 0, end;
-	do {
-		end = str.find('\n', start);
-		std::string s = str.substr(start, end - start);
-		trim(s);
-		result.push_back(s);
-		start = end + 1;
-	} while (end != -1);
-
-	return result;
-}
 
 bool AddSprite(psd::ExportDocument* document, psd::Allocator &allocator, const std::string& spritePath, const std::string& pngPath, int left, int top, int maxSize=1024) {
 	////////////////////////////////////////////////////////////////
@@ -71,7 +45,8 @@ bool AddSprite(psd::ExportDocument* document, psd::Allocator &allocator, const s
 		channelA[i] = pixels[i * 4 + 3];
 	}
 
-	const unsigned int layer1 = AddLayer(document, &allocator, spritePath.c_str());
+	// add a separator here to end the sprite name (makes parsing easier)
+	const unsigned int layer1 = AddLayer(document, &allocator, (spritePath + "#").c_str());
 
 	UpdateLayer(document, &allocator, layer1, psd::exportChannel::RED, left, top, left + iWidth, top + iHeight, channelR.data(), psd::compressionType::RAW);
 	UpdateLayer(document, &allocator, layer1, psd::exportChannel::GREEN, left, top, left + iWidth, top + iHeight, channelG.data(), psd::compressionType::RAW);
@@ -82,7 +57,8 @@ bool AddSprite(psd::ExportDocument* document, psd::Allocator &allocator, const s
 	return true;
 }
 
-bool EchoesGatherSprites(const std::vector<std::tuple<std::string, std::string>>& spritesToLoad, const std::string& outPsd) {
+bool EchoesGatherSprites(const std::vector<std::tuple<std::string, std::string, Json::Value>>& spritesToLoad, const std::string& outFilePath) {
+	const std::string outPsd = outFilePath + ".psd";
 	const std::wstring fullPath(outPsd.c_str(), outPsd.c_str() + outPsd.length());
 	psd::MallocAllocator allocator;
 	psd::NativeFile file(&allocator);
@@ -95,24 +71,39 @@ bool EchoesGatherSprites(const std::vector<std::tuple<std::string, std::string>>
 	}
 
 	psd::ExportDocument* document = CreateExportDocument(&allocator, 2048, 2048, 8u, psd::exportColorMode::RGB);
-
 	AddMetaData(document, &allocator, "author", "miyehn");
+
+	Json::Value indexRoot;
 
 	/////////////////////
 
+	int spriteIdx = 0;
 	for (const auto &sprite: spritesToLoad) {
 		auto& spritePath = std::get<0>(sprite);
 		auto& pngPath = std::get<1>(sprite);
 
 		AddSprite(document, allocator, spritePath, pngPath, 0, 0);
+
+		Json::Value spriteInfo;
+		spriteInfo["spritePath"] = spritePath;
+		spriteInfo["pivot"] = std::get<2>(sprite);
+		indexRoot[spriteIdx] = spriteInfo;
+		spriteIdx++;
 	}
 
 	WriteDocument(document, &allocator, &file);
-
 	DestroyExportDocument(document, &allocator);
 	file.Close();
+	LOG("done writing .psd")
 
-	return true;
+	/////////////////////
+	std::stringstream stream;
+	stream << indexRoot;
+	if (WriteStringToFile(outFilePath + ".index", stream.str())) {
+		LOG("done writing .index")
+		return true;
+	}
+	return false;
 }
 
 int main(int argc, const char* argv[]) {
@@ -120,13 +111,10 @@ int main(int argc, const char* argv[]) {
 	cxxopts::Options options("EchoesGatherSprites", "Documentation: TODO\n");
 	options.allow_unrecognised_options();
 
-	const std::regex pattern("abc/def.*");
-	std::cout << std::regex_match("abc/def/xxxasdg.assetpack", pattern) << std::endl;
-
 #if 1
 	options.add_options()
 		("d,directory", "directory to iterate, absolute path or relative to executable", cxxopts::value<std::string>()/*->default_value("input.psd")*/)
-		("o,output", "output psd, absolute path or relative to executable", cxxopts::value<std::string>()/*->default_value("output")*/)
+		("o,output", "output name (psd & index), absolute path or relative to executable", cxxopts::value<std::string>()/*->default_value("output")*/)
 		("x,ignore", "sprite path ignore list (regex, one per line)", cxxopts::value<std::string>()/*->default_value("output")*/)
 		("i,include", "include list (regex, one per line)", cxxopts::value<std::string>()/*->default_value("output")*/)
 		("l,listonly", "list sprites only; don't create psd", cxxopts::value<bool>())
@@ -163,7 +151,7 @@ int main(int argc, const char* argv[]) {
 		}
 	}
 
-	std::vector<std::tuple<std::string, std::string>> spritesToLoad;
+	std::vector<std::tuple<std::string, std::string, Json::Value>> spritesToLoad;
 	{// populate spritesToLoad
 		Json::Reader reader;
 		std::filesystem::path assetPacksRoot(inDirectory);
@@ -178,9 +166,15 @@ int main(int argc, const char* argv[]) {
 				std::string assetPack = ReadFileAsString(dirEntry.path().string());
 				Json::Value root;
 				if (reader.parse(assetPack, root)) {
-					for (const auto &item: root["materials"]) {
-						std::string spritePath = spritePathBase + item["name"].asString();
-						std::string pngPath = pngPathBase + item["mainTexPath"].asString();
+					std::map<std::string, Json::Value> pivotsMap;
+					for (const auto &pivot: root["pivots"]) {
+						pivotsMap[pivot["texPath"].asString()] = pivot["pivot"];
+					}
+					for (const auto &mat: root["materials"]) {
+						const std::string spritePath = spritePathBase + mat["name"].asString();
+						const std::string localMainTexPath = mat["mainTexPath"].asString();
+						const std::string pngPath = pngPathBase + localMainTexPath;
+						Json::Value pivot = pivotsMap[localMainTexPath];
 
 						bool ignored = false;
 						// ignore list
@@ -201,7 +195,7 @@ int main(int argc, const char* argv[]) {
 
 						LOG("%s%s", ignored ? "\t[ignored] " : "", spritePath.c_str())
 						if (!ignored) {
-							spritesToLoad.emplace_back(spritePath, pngPath);
+							spritesToLoad.emplace_back(spritePath, pngPath, pivot);
 						}
 					}
 				} else {
@@ -212,7 +206,10 @@ int main(int argc, const char* argv[]) {
 		LOG("======== %zu sprites ========", spritesToLoad.size())
 	}
 	// with all the sprites to load, actually load them:
-	if (!listOnly) {
+	if (listOnly) {
+		LOG("(list only; skipping actual output..)")
+	} else {
+		LOG("(writing psd '%s')", outPsd.c_str())
 		EchoesGatherSprites(spritesToLoad, outPsd);
 	}
 

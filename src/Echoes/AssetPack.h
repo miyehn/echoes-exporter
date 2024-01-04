@@ -3,42 +3,7 @@
 #include <vector>
 #include <unordered_map>
 #include <string>
-#include "json/json-forwards.h"
-
-struct vec2 {
-	float x = 0;
-	float y = 0;
-
-	vec2 operator+(const vec2 other) const {
-		return {
-			x + other.x,
-			y + other.y
-		};
-	}
-
-	vec2 operator-(const vec2 other) const {
-		return {
-			x - other.x,
-			y - other.y
-		};
-	}
-
-	vec2 operator*(float c) const {
-		return { x * c, y * c};
-	}
-	vec2 operator/(float c) const {
-		return { x / c, y / c};
-	}
-	Json::Value serialized() const;
-};
-
-struct ivec2 {
-	int x = 0;
-	int y = 0;
-	operator vec2() const {
-		return {(float)x, (float)y};
-	}
-};
+#include "Utils.h"
 
 struct SpriteSet {
 	std::string name;
@@ -63,7 +28,7 @@ struct AssetPack {
 	std::unordered_map<std::string, SpriteSet> spriteSets;
 	vec2 docOriginPx;
 	uint32_t docWidth, docHeight;
-	float pixelsPerDiagonalUnit; // sqrt(2) = 1.41421356237
+	float pixelsPerDiagonalUnit = STANDARD_PPDU; // sqrt(2) = 1.41421356237
 
 	bool isValid() const;
 };
@@ -73,14 +38,3 @@ bool EchoesReadPsdToAssetPack(const std::string& inFile, AssetPack& assetPack);
 bool ExportAssetPack(const AssetPack& assetPack, const std::string& outDir, int cleanFirst);
 
 ///////////////// windows api specific:
-enum GUILogType: int {
-	LT_LOG = 0,
-	LT_SUCCESS = 1,
-	LT_WARNING = 2,
-	LT_ERROR = 3
-};
-struct GUILogEntry {
-	GUILogType type;
-	std::string msg;
-};
-void AppendToGUILog(const GUILogEntry &entry, bool clearFirst = false);

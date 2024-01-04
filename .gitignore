@@ -8,6 +8,8 @@
 cmake-build-debug/
 cmake-build-release/
 *.psd
+*.index
+*.islandblueprint
 
 # User-specific files
 *.rsuser

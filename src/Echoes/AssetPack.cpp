@@ -22,6 +22,7 @@
 #include "../Psd/PsdBlendMode.h"
 
 // export
+#include "Utils.h"
 #include "stb_image_resize.h"
 #include "stb_image_write.h"
 #include "json/json.h"
@@ -127,11 +128,6 @@ T* CreateInterleavedImage(Allocator* allocator, const void* srcR, const void* sr
 
 // a few more helpers
 
-std::string GetName(const Layer* layer) {
-	std::string name(layer->name.c_str());
-	return name;
-}
-
 enum PositionParseStatus {
 	NotParsed,
 	ParsedSizeOnly,
@@ -170,89 +166,6 @@ uint8_t* GetLayerData(const Document* document, File* file, Allocator &allocator
 }
 }
 
-bool UnderExport(const Layer* layer) {
-	const Layer* itr = layer;
-	while (itr) {
-		if (GetName(itr) == "export") return true;
-		itr = itr->parent;
-	}
-	return false;
-}
-
-bool VisibleInHierarchy(const Layer* layer) {
-	const Layer* itr = layer;
-	while (itr) {
-		if (!itr->isVisible) return false;
-		itr = itr->parent;
-	}
-	return true;
-}
-
-const float sqrt2 = std::sqrt(2.0f);
-const float sqrt3 = std::sqrt(3.0f);
-const vec2 ISO_X = {sqrt2 / 2, sqrt2 / sqrt3 / 2 };
-const vec2 ISO_Y = {sqrt2 / 2, -sqrt2 / sqrt3 / 2 };
-
-vec2 ToIsometric(vec2 p) {
-	vec2 v0 = ISO_X;
-	vec2 v1 = ISO_Y;
-	return {
-		v0.x * p.x + v1.x * p.y,
-		v0.y * p.x + v1.y * p.y
-	};
-}
-
-vec2 FromIsometric(vec2 p) {
-	const float det = ISO_X.x * ISO_Y.y - ISO_Y.x * ISO_X.y;
-	vec2 v0 = {
-		ISO_Y.y / det,
-		-ISO_X.y / det
-	};
-	vec2 v1 = {
-		-ISO_Y.x / det,
-		ISO_X.x / det
-	};
-	return {
-		v0.x * p.x + v1.x * p.y,
-		v0.y * p.x + v1.y * p.y
-	};
-}
-
-vec2 PixelPosToUnitPos(vec2 pixelPos, float workingPPDU) {
-	vec2 unitPos = FromIsometric(pixelPos);
-	return unitPos / (workingPPDU / sqrt(2.0f));
-}
-
-vec2 UnitPosToPixelPos(vec2 unitPos, float workingPPDU) {
-	vec2 pixelPos = ToIsometric(unitPos);
-	return pixelPos * (workingPPDU / sqrt(2.0f));
-}
-
-std::vector<std::string> SplitTokens(const std::string& s) {
-	std::vector<std::string> tokens;
-	std::string cur;
-	for (char c : s) {
-		if (c == ' ') {
-			if (cur.length() > 0) tokens.push_back(cur);
-			cur = "";
-		} else {
-			cur += c;
-		}
-	}
-	if (cur.length() > 0) tokens.push_back(cur);
-	return tokens;
-}
-
-std::string JoinTokens(const std::vector<std::string> &tokens) {
-	std::string result;
-	for (auto token : tokens) {
-		ASSERT(token.length() > 0)
-		token[0] = (char)toupper(token[0]);
-		result += token;
-	}
-	return result;
-}
-
 bool AssetPack::isValid() const {
 	bool valid = true;
 	for (auto& spritePair : spriteSets) {
@@ -269,48 +182,11 @@ bool AssetPack::isValid() const {
 
 bool EchoesReadPsdToAssetPack(const std::string& inFile, AssetPack& assetPack) {
 
-	const std::wstring fullPath(inFile.c_str(), inFile.c_str() + inFile.length());
+	psd::Document* document;
+	psd::LayerMaskSection* section;
 	psd::MallocAllocator allocator;
 	psd::NativeFile file(&allocator);
-
-	// open file
-	if (!file.OpenRead(fullPath.c_str())) {
-		AppendToGUILog({LT_ERROR, "ERROR: Failed to open file!"});
-		ERR("failed to open file")
-		return false;
-	}
-
-	// create document
-	psd::Document* document = psd::CreateDocument(&file, &allocator);
-	if (!document) {
-		AppendToGUILog({LT_ERROR, "ERROR: Failed to open file! Was that a PSD document?"});
-		WARN("failed to create psd document")
-		file.Close();
-		return false;
-	}
-
-	// check color mode
-	if (document->colorMode != psd::colorMode::RGB) {
-		AppendToGUILog({LT_ERROR, "ERROR: This PSD is not in RGB color mode"});
-		WARN("psd is not in RGB color mode")
-		file.Close();
-		return false;
-	}
-
-	// check bits per channel
-	if (document->bitsPerChannel != 8) {
-		AppendToGUILog({LT_ERROR, "ERROR: This PSD doesn't have 8 bits per channel"});
-		WARN("this psd doesn't have 8 bits per channel")
-		file.Close();
-		return false;
-	}
-
-	// read section
-	auto section = psd::ParseLayerMaskSection(document, &file, &allocator);
-	if (!section) {
-		AppendToGUILog({LT_ERROR, "ERROR: failed to parse layer mask section"});
-		WARN("failed to parse layer mask section")
-		file.Close();
+	if (!ReadPsdLayers(inFile, document, section, allocator, file)) {
 		return false;
 	}
 
@@ -440,7 +316,7 @@ bool EchoesReadPsdToAssetPack(const std::string& inFile, AssetPack& assetPack) {
 	};
 	for (int i = 0; i < section->layerCount; i++) {
 		Layer* layer = &section->layers[i];
-		if (!UnderExport(layer) || (layer->type!=layerType::SECTION_DIVIDER && !VisibleInHierarchy(layer))) continue;
+		if (!IsOrUnderLayer(layer, "export") || (layer->type != layerType::SECTION_DIVIDER && !VisibleInHierarchy(layer))) continue;
 
 		ExtractLayer(document, &file, &allocator, layer);
 
@@ -574,13 +450,6 @@ std::vector<uint8_t> Crop(const std::vector<uint8_t>& data, uint32_t srcStrideIn
 		uint32_t dstStart = i * dstStrideInBytes;
 		memcpy(result.data() + dstStart, data.data() + srcStart, dstStrideInBytes);
 	}
-	return result;
-}
-
-Json::Value vec2::serialized() const {
-	Json::Value result;
-	result["x"] = x;
-	result["y"] = y;
 	return result;
 }
 
@@ -793,11 +662,8 @@ bool ExportAssetPack(const AssetPack& assetPack, const std::string& outDir, int 
 
 	// write to file
 	std::string folderName = outDir.substr(outDir.find_last_of("/\\") + 1);
-	std::ofstream file;
-	file.open(outDir + "/" + folderName + ".assetpack");
-	if (file.is_open()) {
-		file << outstr;
-		file.close();
+	if (WriteStringToFile(outDir + "/" + folderName + ".assetpack", outstr)) {
+		// write succeeded
 	} else {
 		AppendToGUILog({LT_ERROR, writeFileError});
 		return false;

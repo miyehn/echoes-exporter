@@ -19,7 +19,7 @@
 // The main window class name.
 static TCHAR szWindowClass[] = _T("EchoesExporter");
 // The string that appears in the application's title bar.
-static TCHAR szTitle[] = _T("Echoes Exporter (version: 12/23/23)");
+static TCHAR szTitle[] = _T("Echoes Exporter (version: 1/2/24)");
 
 // Stored instance handle for use in Win32 API calls such as FindResource
 HINSTANCE hInst;
