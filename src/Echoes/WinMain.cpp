@@ -19,7 +19,7 @@
 // The main window class name.
 static TCHAR szWindowClass[] = _T("EchoesExporter");
 // The string that appears in the application's title bar.
-static TCHAR szTitle[] = _T("Echoes Exporter (version: 1/2/24)");
+static TCHAR szTitle[] = _T("Echoes Exporter (version: 1/15/24)");
 
 // Stored instance handle for use in Win32 API calls such as FindResource
 HINSTANCE hInst;
@@ -36,6 +36,8 @@ LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 #define CMD_SPRITECONVERTER_DOC 5
 #define CMD_EXPORT_ASSETPACK 6
 #define CMD_RELOAD_LAST_PSD_AND_EXPORT 7
+#define CMD_SET_DRESSING_GUIDE_DOC 8
+#define CMD_EXPORT_LAYOUT_PNGS 9
 
 #define WINDOW_WIDTH 640
 #define WINDOW_HEIGHT 720
@@ -196,7 +198,7 @@ void ShowMessage(const std::string& text, const std::string& caption) {
 	}
 }
 
-void CmdExportAssetPack() {
+void CmdExportAssetPack(ExportType exportType) {
 	if (assetPack.spriteSets.size() == 0) {
 		ShowMessage( "Did you load the PSD file correctly?", "No sprites to export");
 		return;
@@ -217,14 +219,24 @@ void CmdExportAssetPack() {
 		ShowMessage( "Please specify a non-empty asset pack name, something like \"DarkwoodRocks\"", "Invalid asset pack name");
 		return;
 	}
-	std::string fullPath = outDirectory + "\\" + assetPackName;
-
-	if (ExportAssetPack(assetPack, fullPath, 0)) {
-		AppendToGUILog({LT_SUCCESS, "Exported " + std::to_string(assetPack.spriteSets.size()) + " sprites to:"});
-		AppendToGUILog({LT_SUCCESS, fullPath});
-		AppendToGUILog({LT_LOG, "If you have build access, continue by following \"Help -> Configuring sprites in Unity\". Otherwise, submit the above folder to our google drive."});
-	} else {
-		AppendToGUILog({LT_ERROR, "Failed to export asset pack. Check the warnings/errors above (if any). Still not sure why? DM me (Rain) your psd file and let me take a look"});
+	if (exportType == ET_ASSETPACK) {
+		std::string fullPath = outDirectory + "\\" + assetPackName;
+		if (ExportAssetPack(assetPack, outDirectory, assetPackName, 0, ET_ASSETPACK)) {
+			AppendToGUILog({LT_SUCCESS, "Exported " + std::to_string(assetPack.spriteSets.size()) + " sprites to:"});
+			AppendToGUILog({LT_SUCCESS, fullPath});
+			AppendToGUILog({LT_LOG, "If you have build access, continue by following \"Help -> Configuring sprites in Unity\". Otherwise, submit the above folder to our google drive."});
+		} else {
+			AppendToGUILog({LT_ERROR, "Failed to export asset pack. Check the warnings/errors above (if any). Still not sure why? DM me (Rain) your psd and let me take a look"});
+		}
+	} else if (exportType == ET_LAYOUT) {
+		std::string fullPath = outDirectory + "\\" + assetPackName + " (layout)";
+		if (ExportAssetPack(assetPack, outDirectory, assetPackName, 0, ET_LAYOUT)) {
+			AppendToGUILog({LT_SUCCESS, "Saved " + std::to_string(assetPack.spriteSets.size()) + " pngs to:"});
+			AppendToGUILog({LT_SUCCESS, fullPath});
+			AppendToGUILog({LT_LOG, "Now you can continue the \"Add new props\" section in \"Help -> Set dressing guide\"."});
+		} else {
+			AppendToGUILog({LT_ERROR, "Failed to save pngs. Check the warnings/errors above (if any). Still not sure why? DM me (Rain) your psd and let me take a look"});
+		}
 	}
 }
 
@@ -236,9 +248,13 @@ void CmdSpriteConverterDoc() {
 	ShellExecute(0, 0, _T("https://docs.google.com/document/d/1PGAtx2exCd0odrkpP0Dy70wVBlfR2gZaDSlqFCF5uHM/edit?usp=sharing"), 0, 0, SW_SHOW);
 }
 
+void CmdSetDressingGuideDoc() {
+	ShellExecute(0, 0, _T("https://docs.google.com/document/d/1iX-HU8rwNFsydFe0JVBnDGkLsOtvlaf0TSqxx3WIjeM/edit?usp=sharing"), 0, 0, SW_SHOW);
+}
+
 void CmdReloadLastPsdAndExport() {
 	if (ReadPsd("", true)) {
-		CmdExportAssetPack();
+		CmdExportAssetPack(ET_ASSETPACK);
 	}
 }
 
@@ -358,11 +374,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				case CMD_PSD_FORMATTING_DOC:
 					CmdPsdFormattingDoc();
 					break;
+				case CMD_SET_DRESSING_GUIDE_DOC:
+					CmdSetDressingGuideDoc();
+					break;
 				case CMD_BROWSE_SAVE_DIRECTORY:
 					CmdBrowseSaveDirectory();
 					break;
 				case CMD_EXPORT_ASSETPACK:
-					CmdExportAssetPack();
+					CmdExportAssetPack(ET_ASSETPACK);
+					break;
+				case CMD_EXPORT_LAYOUT_PNGS:
+					CmdExportAssetPack(ET_LAYOUT);
 					break;
 				case CMD_SPRITECONVERTER_DOC:
 					CmdSpriteConverterDoc();
@@ -405,6 +427,7 @@ void AddMenus(HWND hWnd) {
 	HMENU hHelpMenu = CreateMenu();
 	AppendMenu(hHelpMenu, MF_STRING, CMD_PSD_FORMATTING_DOC, "Formatting PSD for export");
 	AppendMenu(hHelpMenu, MF_STRING, CMD_SPRITECONVERTER_DOC, "Configuring sprites in Unity");
+	AppendMenu(hHelpMenu, MF_STRING, CMD_SET_DRESSING_GUIDE_DOC, "Set dressing guide");
 
 	HMENU hMenu = CreateMenu();
 	AppendMenu(hMenu, MF_POPUP, (UINT_PTR)hFileMenu, "File");
@@ -426,7 +449,7 @@ void AddContent(HWND hWnd) {
 			"  - see \"Help -> Formatting PSD for export\" for instructions\r\n"
 			"2) Select your PSD from \"File -> Open\" or drag it to the box below\r\n"
 			"3) Specify export destination and asset pack name, and hit \"Export\"\r\n"
-			"  - or use the button below to re-export your last PSD\r\n"
+			"  - or use the buttons below for other actions\r\n"
 			"4) Submit the entire exported folder by following instructions in the output log\r\n"
 			"\r\n"
 			"At or DM Rain (discord: @miyehn) for questions or feedback or anything else!"
@@ -513,11 +536,18 @@ void AddContent(HWND hWnd) {
 			horizontalPadding, currentHeight, 60, 20,
 			hWnd, nullptr, nullptr, nullptr
 		) != nullptr, true)
+		const int btnWidth = (contentWidth - 60) / 2;
 		EXPECT(CreateWindowEx(
-			0, WC_BUTTON, _T("Reload last PSD document and export to above destination"),
+			0, WC_BUTTON, _T("Reload last PSD and re-export"),
 			WS_VISIBLE | WS_CHILD,
-			60 + horizontalPadding, currentHeight, contentWidth - 60, 20,
+			60 + horizontalPadding, currentHeight, btnWidth - 2, 20,
 			hWnd, (HMENU)CMD_RELOAD_LAST_PSD_AND_EXPORT, nullptr, nullptr
+		) != nullptr, true)
+		EXPECT(CreateWindowEx(
+			0, WC_BUTTON, _T("Generate PNGs for set dressing"),
+			WS_VISIBLE | WS_CHILD,
+			60 + horizontalPadding + btnWidth, currentHeight, btnWidth, 20,
+			hWnd, (HMENU)CMD_EXPORT_LAYOUT_PNGS, nullptr, nullptr
 		) != nullptr, true)
 		currentHeight += 20 + GAP_MEDIUM;
 	}

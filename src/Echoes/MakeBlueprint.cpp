@@ -65,13 +65,13 @@ int main(int argc, const char* argv[]) {
 	std::string indexStr = ReadFileAsString(inIndex);
 	Json::Reader reader;
 	Json::Value indexContent;
-	std::map<std::string, vec2> pivotsMap;
+	std::map<std::string, std::tuple<vec2, vec2>> pivotsMap;
 	if (reader.parse(indexStr, indexContent)) {
 		for (const auto &sprite: indexContent) {
 			std::string spritePath = sprite["spritePath"].asString();
-			float x = sprite["pivot"]["x"].asFloat();
-			float y = sprite["pivot"]["y"].asFloat();
-			pivotsMap[spritePath] = vec2(x, y);
+			vec2 pivot = {sprite["pivot"]["x"].asFloat(), sprite["pivot"]["y"].asFloat()};
+			vec2 size = {sprite["size"]["x"].asFloat(), sprite["size"]["y"].asFloat()};
+			pivotsMap[spritePath] = std::tuple<vec2, vec2>(pivot, size);
 		}
 		LOG("loaded library index containing %zu sprites", pivotsMap.size())
 	} else {
@@ -110,10 +110,11 @@ int main(int argc, const char* argv[]) {
 		std::string spritePath = SplitTokens(GetName(layer), '#')[0];
 		trim(spritePath);
 
-		vec2 pivot = pivotsMap[spritePath];
+		vec2 pivot = std::get<0>(pivotsMap[spritePath]);
+		vec2 size = std::get<1>(pivotsMap[spritePath]);
 		float x2d = layer->left + (layer->right - layer->left) * pivot.x;
 		float y2d = layer->bottom - (layer->bottom - layer->top) * pivot.y;
-		vec2 unitPos = PixelPosToUnitPos({x2d, y2d}) - originUnitPos;
+		vec2 unitPos = PixelPosToUnitPos({x2d, y2d}) - originUnitPos - size / 2;
 
 		// add to json
 		Json::Value spriteJson;

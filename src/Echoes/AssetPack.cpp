@@ -505,8 +505,16 @@ std::string SpriteSet::getBaseTexPath(int index) const {
 	return getBaseName() + "_base"+std::to_string(index)+".png";
 }
 
+std::string SpriteSet::getLayoutPngPath(const std::string& assetPackName, int index) const {
+	std::string result = assetPackName + "&" + getBaseName();
+	if (baseLayersData.size() > 1) {
+		result += "_part" + std::to_string(index);
+	}
+	return result + "#.png";
+}
+
 std::string SpriteSet::getLightTexPath(int index) const {
-	std::string baseName = JoinTokens(SplitTokens(name));
+	//std::string baseName = JoinTokens(SplitTokens(name));
 	return getBaseName() + "_L" + std::to_string(index) +".png";
 }
 
@@ -602,7 +610,12 @@ std::string SerializeAssetPack(const AssetPack& assetPack) {
 	return stream.str();
 }
 
-bool ExportAssetPack(const AssetPack& assetPack, const std::string& outDir, int cleanFirst) {
+bool ExportAssetPack(const AssetPack& assetPack, const std::string& destination, const std::string& folderName, int cleanFirst, ExportType exportType) {
+
+	std::string outDir = destination + "\\" + folderName;
+	if (exportType == ET_LAYOUT) {
+		outDir += " (layout)";
+	}
 
 	// remove everything from previous export
 	if (cleanFirst > 0 && std::filesystem::exists(outDir)) {
@@ -620,53 +633,74 @@ bool ExportAssetPack(const AssetPack& assetPack, const std::string& outDir, int 
 	}
 
 	const std::string writeFileError = "ERROR: cannot write file(s). If you are updating existing sprites, make sure to first check them out in perforce.";
-	for (auto& pair : assetPack.spriteSets) {
 
-		const SpriteSet& sprite = pair.second;
-		for (int i = 0; i < sprite.baseLayersData.size(); i++) {
-			auto baseRegionData = Crop(sprite.baseLayersData[i], assetPack.docWidth * 4, 4, sprite.minPx, sprite.sizePx);
-			if (!WritePngToDirectory(
-				baseRegionData, sprite.sizePx.x, sprite.sizePx.y, 4, outDir,
-				sprite.getBaseTexPath(i), resizeRatio))
-			{
-				AppendToGUILog({LT_ERROR, writeFileError});
-				return false;
+	if (exportType == ET_ASSETPACK) {
+		for (auto& pair : assetPack.spriteSets) {
+
+			const SpriteSet& sprite = pair.second;
+			for (int i = 0; i < sprite.baseLayersData.size(); i++) {
+				auto baseRegionData = Crop(sprite.baseLayersData[i], assetPack.docWidth * 4, 4, sprite.minPx, sprite.sizePx);
+				if (!WritePngToDirectory(
+					baseRegionData, sprite.sizePx.x, sprite.sizePx.y, 4, outDir,
+					sprite.getBaseTexPath(i), resizeRatio))
+				{
+					AppendToGUILog({LT_ERROR, writeFileError});
+					return false;
+				}
+			}
+			for (int i = 0; i < sprite.lightLayersData.size(); i++) {
+				auto lightTexRegionData = Crop(sprite.lightLayersData[i], assetPack.docWidth * 4, 4, sprite.minPx,
+											   sprite.sizePx);
+				if (!WritePngToDirectory(
+					lightTexRegionData, sprite.sizePx.x, sprite.sizePx.y, 4, outDir,
+					sprite.getLightTexPath(i), resizeRatio))
+				{
+					AppendToGUILog({LT_ERROR, writeFileError});
+					return false;
+				}
+			}
+			// emission
+			if (!sprite.emissionMaskData.empty()) {
+				auto croppedEmissionMask = Crop(sprite.emissionMaskData, assetPack.docWidth, 1, sprite.minPx, sprite.sizePx);
+				if (!WritePngToDirectory(
+					croppedEmissionMask, sprite.sizePx.x, sprite.sizePx.y, 1, outDir,
+					sprite.getEmissionTexPath(), resizeRatio))
+				{
+					AppendToGUILog({LT_ERROR, writeFileError});
+					return false;
+				}
 			}
 		}
-		for (int i = 0; i < sprite.lightLayersData.size(); i++) {
-			auto lightTexRegionData = Crop(sprite.lightLayersData[i], assetPack.docWidth * 4, 4, sprite.minPx,
-										   sprite.sizePx);
-			if (!WritePngToDirectory(
-				lightTexRegionData, sprite.sizePx.x, sprite.sizePx.y, 4, outDir,
-				sprite.getLightTexPath(i), resizeRatio))
-			{
-				AppendToGUILog({LT_ERROR, writeFileError});
-				return false;
+
+		// also export a json
+		std::string outstr = SerializeAssetPack(assetPack);
+
+		// write to file
+		std::string folderName = outDir.substr(outDir.find_last_of("/\\") + 1);
+		if (WriteStringToFile(outDir + "/" + folderName + ".assetpack", outstr)) {
+			// write succeeded
+		} else {
+			AppendToGUILog({LT_ERROR, writeFileError});
+			return false;
+		}
+		return true;
+	}
+	else if (exportType == ET_LAYOUT) {
+		for (auto& pair : assetPack.spriteSets) {
+			const SpriteSet& sprite = pair.second;
+			for (int i = 0; i < sprite.baseLayersData.size(); i++) {
+				auto baseRegionData = Crop(sprite.baseLayersData[i], assetPack.docWidth * 4, 4, sprite.minPx, sprite.sizePx);
+				if (!WritePngToDirectory(
+					baseRegionData, sprite.sizePx.x, sprite.sizePx.y, 4, outDir,
+					sprite.getLayoutPngPath(folderName, i), resizeRatio))
+				{
+					AppendToGUILog({LT_ERROR, writeFileError});
+					return false;
+				}
 			}
 		}
-		// emission
-		if (!sprite.emissionMaskData.empty()) {
-			auto croppedEmissionMask = Crop(sprite.emissionMaskData, assetPack.docWidth, 1, sprite.minPx, sprite.sizePx);
-			if (!WritePngToDirectory(
-				croppedEmissionMask, sprite.sizePx.x, sprite.sizePx.y, 1, outDir,
-				sprite.getEmissionTexPath(), resizeRatio))
-			{
-				AppendToGUILog({LT_ERROR, writeFileError});
-				return false;
-			}
-		}
+		return true;
 	}
 
-	// also export a json
-	std::string outstr = SerializeAssetPack(assetPack);
-
-	// write to file
-	std::string folderName = outDir.substr(outDir.find_last_of("/\\") + 1);
-	if (WriteStringToFile(outDir + "/" + folderName + ".assetpack", outstr)) {
-		// write succeeded
-	} else {
-		AppendToGUILog({LT_ERROR, writeFileError});
-		return false;
-	}
-	return true;
+	return false;
 }

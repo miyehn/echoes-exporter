@@ -57,7 +57,15 @@ bool AddSprite(psd::ExportDocument* document, psd::Allocator &allocator, const s
 	return true;
 }
 
-bool EchoesGatherSprites(const std::vector<std::tuple<std::string, std::string, Json::Value>>& spritesToLoad, const std::string& outFilePath) {
+struct SpriteInfo {
+	std::string spritePath;
+	std::string pngPath;
+	Json::Value pivot;
+	Json::Value size;
+	bool includeInPsd;
+};
+
+bool EchoesGatherSprites(const std::vector<std::tuple<std::string, std::string, Json::Value, Json::Value>>& spritesToLoad, const std::string& outFilePath) {
 	const std::string outPsd = outFilePath + ".psd";
 	const std::wstring fullPath(outPsd.c_str(), outPsd.c_str() + outPsd.length());
 	psd::MallocAllocator allocator;
@@ -73,10 +81,9 @@ bool EchoesGatherSprites(const std::vector<std::tuple<std::string, std::string, 
 	psd::ExportDocument* document = CreateExportDocument(&allocator, 2048, 2048, 8u, psd::exportColorMode::RGB);
 	AddMetaData(document, &allocator, "author", "miyehn");
 
-	Json::Value indexRoot;
-
 	/////////////////////
 
+	Json::Value indexRoot;
 	int spriteIdx = 0;
 	for (const auto &sprite: spritesToLoad) {
 		auto& spritePath = std::get<0>(sprite);
@@ -87,6 +94,7 @@ bool EchoesGatherSprites(const std::vector<std::tuple<std::string, std::string, 
 		Json::Value spriteInfo;
 		spriteInfo["spritePath"] = spritePath;
 		spriteInfo["pivot"] = std::get<2>(sprite);
+		spriteInfo["size"] = std::get<3>(sprite);
 		indexRoot[spriteIdx] = spriteInfo;
 		spriteIdx++;
 	}
@@ -151,7 +159,7 @@ int main(int argc, const char* argv[]) {
 		}
 	}
 
-	std::vector<std::tuple<std::string, std::string, Json::Value>> spritesToLoad;
+	std::vector<std::tuple<std::string, std::string, Json::Value, Json::Value>> spritesToLoad;
 	{// populate spritesToLoad
 		Json::Reader reader;
 		std::filesystem::path assetPacksRoot(inDirectory);
@@ -174,7 +182,9 @@ int main(int argc, const char* argv[]) {
 						const std::string spritePath = spritePathBase + mat["name"].asString();
 						const std::string localMainTexPath = mat["mainTexPath"].asString();
 						const std::string pngPath = pngPathBase + localMainTexPath;
-						Json::Value pivot = pivotsMap[localMainTexPath];
+						Json::Value pivotJson = pivotsMap[localMainTexPath];
+						vec2 pivot = {pivotJson["x"].asFloat(), pivotJson["y"].asFloat()};
+						vec2 size = {mat["size"]["x"].asFloat(), mat["size"]["y"].asFloat()};
 
 						bool ignored = false;
 						// ignore list
@@ -195,7 +205,7 @@ int main(int argc, const char* argv[]) {
 
 						LOG("%s%s", ignored ? "\t[ignored] " : "", spritePath.c_str())
 						if (!ignored) {
-							spritesToLoad.emplace_back(spritePath, pngPath, pivot);
+							spritesToLoad.emplace_back(spritePath, pngPath, pivot.serialized(), size.serialized());
 						}
 					}
 				} else {

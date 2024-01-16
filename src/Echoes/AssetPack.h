@@ -22,6 +22,7 @@ struct SpriteSet {
 	std::string getBaseTexPath(int index) const;
 	std::string getLightTexPath(int index) const;
 	std::string getEmissionTexPath() const;
+	std::string getLayoutPngPath(const std::string& assetPackName, int index) const;
 };
 
 struct AssetPack {
@@ -35,6 +36,11 @@ struct AssetPack {
 
 bool EchoesReadPsdToAssetPack(const std::string& inFile, AssetPack& assetPack);
 
-bool ExportAssetPack(const AssetPack& assetPack, const std::string& outDir, int cleanFirst);
+enum ExportType {
+	ET_ASSETPACK = 0,
+	ET_LAYOUT = 1
+};
+
+bool ExportAssetPack(const AssetPack& assetPack, const std::string& destination, const std::string& folderName, int cleanFirst, ExportType exportType);
 
 ///////////////// windows api specific:
