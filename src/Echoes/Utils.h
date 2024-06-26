@@ -37,6 +37,15 @@ inline void trim(std::string &s) {
 	rtrim(s);
 	ltrim(s);
 }
+
+inline std::string tolower(const std::string& s) {
+	std::string result;
+	for (char c : s) {
+		result += std::tolower(c);
+	}
+	return result;
+}
+
 std::string ReadFileAsString(const std::string& path);
 
 bool WriteStringToFile(const std::string& path, const std::string& content);

@@ -19,7 +19,11 @@
 // The main window class name.
 static TCHAR szWindowClass[] = _T("EchoesExporter");
 // The string that appears in the application's title bar.
-static TCHAR szTitle[] = _T("Echoes Exporter (version: 1/15/24)");
+#if DEBUG
+static TCHAR szTitle[] = _T("Echoes Exporter (version: 2/22/24 DEBUG)");
+#else
+static TCHAR szTitle[] = _T("Echoes Exporter (version: 2/22/24)");
+#endif
 
 // Stored instance handle for use in Win32 API calls such as FindResource
 HINSTANCE hInst;
@@ -87,6 +91,7 @@ bool ReadPsd(const std::string& InFilePath, bool useLastPath = false) {
 		filePath = InFilePath;
 		lastFilePath = InFilePath;
 	}
+	AppendToGUILog({LT_LOG, "Loading " + InFilePath}, true);
 	// load psd file content
 	bool success = EchoesReadPsdToAssetPack(filePath, assetPack);
 	if (success) {
@@ -113,7 +118,7 @@ bool ReadPsd(const std::string& InFilePath, bool useLastPath = false) {
 			spritesCount++;
 		}
 		if (spritesCount > 0) {
-			AppendToGUILog({LT_LOG, "Loaded " + std::to_string(spritesCount) + " sprite(s)."}, true);
+			AppendToGUILog({LT_LOG, "Loaded " + std::to_string(spritesCount) + " sprite(s)."});
 		} else {
 			AppendToGUILog({LT_WARNING, "WARNING: no sprites are loaded. Are you sure the PSD file is formatted correctly?"});
 		}

@@ -65,7 +65,7 @@ struct SpriteInfo {
 	bool includeInPsd;
 };
 
-bool EchoesGatherSprites(const std::vector<std::tuple<std::string, std::string, Json::Value, Json::Value>>& spritesToLoad, const std::string& outFilePath) {
+bool EchoesGatherSprites(const std::vector<SpriteInfo>& spritesToLoad, const std::string& outFilePath) {
 	const std::string outPsd = outFilePath + ".psd";
 	const std::wstring fullPath(outPsd.c_str(), outPsd.c_str() + outPsd.length());
 	psd::MallocAllocator allocator;
@@ -86,16 +86,18 @@ bool EchoesGatherSprites(const std::vector<std::tuple<std::string, std::string, 
 	Json::Value indexRoot;
 	int spriteIdx = 0;
 	for (const auto &sprite: spritesToLoad) {
-		auto& spritePath = std::get<0>(sprite);
-		auto& pngPath = std::get<1>(sprite);
 
-		AddSprite(document, allocator, spritePath, pngPath, 0, 0);
+		// add to psd
+		if (sprite.includeInPsd) {
+			AddSprite(document, allocator, sprite.spritePath, sprite.pngPath, 0, 0, 1400);
+		}
 
-		Json::Value spriteInfo;
-		spriteInfo["spritePath"] = spritePath;
-		spriteInfo["pivot"] = std::get<2>(sprite);
-		spriteInfo["size"] = std::get<3>(sprite);
-		indexRoot[spriteIdx] = spriteInfo;
+		// add to index (always)
+		Json::Value spriteInfoJson;
+		spriteInfoJson["spritePath"] = sprite.spritePath;
+		spriteInfoJson["pivot"] = sprite.pivot;
+		spriteInfoJson["size"] = sprite.size;
+		indexRoot[spriteIdx] = spriteInfoJson;
 		spriteIdx++;
 	}
 
@@ -159,7 +161,7 @@ int main(int argc, const char* argv[]) {
 		}
 	}
 
-	std::vector<std::tuple<std::string, std::string, Json::Value, Json::Value>> spritesToLoad;
+	std::vector<SpriteInfo> spritesToLoad;
 	{// populate spritesToLoad
 		Json::Reader reader;
 		std::filesystem::path assetPacksRoot(inDirectory);
@@ -204,9 +206,14 @@ int main(int argc, const char* argv[]) {
 						}
 
 						LOG("%s%s", ignored ? "\t[ignored] " : "", spritePath.c_str())
-						if (!ignored) {
-							spritesToLoad.emplace_back(spritePath, pngPath, pivot.serialized(), size.serialized());
-						}
+						SpriteInfo info = {
+							.spritePath = spritePath,
+							.pngPath = pngPath,
+							.pivot = pivot.serialized(),
+							.size = size.serialized(),
+							.includeInPsd = !ignored
+						};
+						spritesToLoad.push_back(info);
 					}
 				} else {
 					ERR("failed to parse json!")

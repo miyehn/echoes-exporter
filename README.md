@@ -1,3 +1,34 @@
+# Echoes Exporter
+
+This is the hub for some of Echoes' art pipeline tools. Below are the 3 relevant build targets.
+
+To learn more about the game Echoes and its art pipeline, see [this documentation page](https://miyehn.me/#page/echoes).
+
+### EchoesExporter_Windowed
+
+![](assets/psd-exporter.png)
+
+A GUI tool that exports props and their position & pivot information directly from PSD layers, to help streamline the 2D art asset workflow from PSD files to Unity prefabs. Unlike other tools, this one has GUI because it was mostly used by artists, who aren't necessarily familiar with the command line. See the "Echoes exporter" section of documentation for details.
+
+[Here](assets/EchoesExporter_Windowed.exe) is the executable. You can run it on [this sample PSD file](assets/sample-psd.psd), or make your own by following [this documentation I wrote](https://docs.google.com/document/d/1PNKSJYEmk9Cz_OFGKrXTKq-tnm2wgDN1cy6o5KLHpAY/edit?usp=sharing).
+
+### EchoesGatherSprites
+
+A command-line script that parses the game project directory and exports a PSD file containing all our 2D props, so they can be reused in environment set-dressing. We mostly do set-dressing in PSD files, not Unity. See the "Island blueprints" section of documentation for details.
+
+It also exports an index file of all props, which is then used by EchoesMakeBlueprint. 
+
+![](assets/gather-sprites.png)
+
+### EchoesMakeBlueprint
+
+A command-line tool that takes the index file and turns the set-dressed scene (a PSD file) into a JSON describing the scene, so Unity can read from it and assemble the exact same scene in the game engine.
+
+![](assets/make-blueprint.png)
+
+
+---
+
 # psd_sdk
 A C++ library that directly reads Photoshop PSD files. The library supports:
 * Groups

@@ -201,15 +201,15 @@ bool EchoesReadPsdToAssetPack(const std::string& inFile, AssetPack& assetPack) {
 	for (int i = 0; i < section->layerCount; i++) {
 		psd::Layer* layer = &section->layers[i];
 		// info layers:
-		if (layer->parent != nullptr && GetName(layer->parent)=="meta") {
-			if (GetName(layer) == "origin") {
+		if (layer->parent != nullptr && tolower(GetName(layer->parent))=="meta") {
+			if (tolower(GetName(layer)) == "origin") {
 				assetPack.docOriginPx = {
 					(layer->right + layer->left) * 0.5f,
 					(layer->bottom + layer->top) * 0.5f
 				};
 			} else {
 				auto tokens = SplitTokens(GetName(layer));
-				if (tokens.size() == 2 && tokens[0] == "ruler") {
+				if (tokens.size() == 2 && tolower(tokens[0]) == "ruler") {
 					assetPack.pixelsPerDiagonalUnit = (layer->right - layer->left) / std::stof(tokens[1]);
 				}
 			}
@@ -219,7 +219,7 @@ bool EchoesReadPsdToAssetPack(const std::string& inFile, AssetPack& assetPack) {
 			VisibleInHierarchy(layer) &&
 			(layer->type == layerType::OPEN_FOLDER || layer->type == layerType::CLOSED_FOLDER) &&
 			layer->parent != nullptr &&
-			GetName(layer->parent)=="export")
+			tolower(GetName(layer->parent))=="export")
 		{
 			auto name = GetName(layer);
 			assetPack.spriteSets[name] = SpriteSet();
@@ -323,7 +323,7 @@ bool EchoesReadPsdToAssetPack(const std::string& inFile, AssetPack& assetPack) {
 		// entering new sprite..
 		if (layer->type == layerType::SECTION_DIVIDER &&
 			layer->parent && // asset group
-			layer->parent->parent && GetName(layer->parent->parent) == "export" && // "export"
+			layer->parent->parent && tolower(GetName(layer->parent->parent)) == "export" && // "export"
 			assetPack.spriteSets.find(GetName(layer->parent)) != assetPack.spriteSets.end() // check there is a sprite set
 			) {
 			// check if last sprite has position info fully parsed, give warning if not:
@@ -366,7 +366,7 @@ bool EchoesReadPsdToAssetPack(const std::string& inFile, AssetPack& assetPack) {
 			ExpandPixelBBox(layer);
 		}
 
-		// direct child of sprite folder, raster layer --> single base layer, or lightTex, or corner
+		// direct child of sprite folder, raster layer --> single base layer, or emission, or lightTex, or corner
 		else if (
 			layer->parent == currentSpriteFolder && layer->type == layerType::ANY) {
 			// single base layer
@@ -382,7 +382,7 @@ bool EchoesReadPsdToAssetPack(const std::string& inFile, AssetPack& assetPack) {
 				ExpandPixelBBox(layer);
 			}
 			// corner marker
-			else if (GetName(layer) == "corner") {
+			else if (tolower(GetName(layer)) == "corner") {
 				if (positionParseStatus == ParsedSizeOnly) {
 					vec2 cornerPosPx = {
 						(layer->right + layer->left) * 0.5f,
@@ -394,7 +394,8 @@ bool EchoesReadPsdToAssetPack(const std::string& inFile, AssetPack& assetPack) {
 					positionParseStatus = ParseDone;
 				}
 			}
-			else if (GetName(layer) == "emission") {
+			// emission
+			else if (tolower(GetName(layer)) == "emission") {
 				if (!ProcessSpriteEmissionMaskContent(currentSprite->emissionMaskData, layer)) {
 					return false;
 				}
@@ -439,7 +440,9 @@ bool WritePngToDirectory(
 		resizedData.data(), newWidth, newHeight, newWidth * numChannels, numChannels);
 
 	// write
-	return stbi_write_png(fullpath.c_str(), newWidth, newHeight, numChannels, resizedData.data(), numChannels * newWidth) != 0;
+	bool success = stbi_write_png(fullpath.c_str(), newWidth, newHeight, numChannels, resizedData.data(), numChannels * newWidth) != 0;
+	ASSERT(success)
+	return success;
 }
 
 std::vector<uint8_t> Crop(const std::vector<uint8_t>& data, uint32_t srcStrideInBytes, uint32_t numChannels, ivec2 minPx, ivec2 sizePx) {
@@ -627,7 +630,8 @@ bool ExportAssetPack(const AssetPack& assetPack, const std::string& destination,
 
 	// compute resize ratio
 	const float resizeRatio = ComputeResizeRatio(assetPack.pixelsPerDiagonalUnit);
-	LOG("resize ratio: %.3f", resizeRatio)
+	LOG("resize ratio: %f", resizeRatio)
+	//LOG("resize ratio: %.3f", resizeRatio)
 	if (resizeRatio > 1) {
 		AppendToGUILog({LT_WARNING, "WARNING: resize ratio is " + std::to_string(resizeRatio) + " (>1)"});
 	}

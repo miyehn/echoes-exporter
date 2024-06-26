@@ -104,11 +104,12 @@ int main(int argc, const char* argv[]) {
 		if (!IsOrUnderLayer(layer, "layout") || (layer->type != layerType::SECTION_DIVIDER && !VisibleInHierarchy(layer))) continue;
 
 		// temp: for now, also exclude all groups and section dividers
-		if (GetName(layer)=="layout" && layer->type==layerType::OPEN_FOLDER || layer->type==layerType::CLOSED_FOLDER) continue;
+		if (tolower(GetName(layer))=="layout" && layer->type==layerType::OPEN_FOLDER || layer->type==layerType::CLOSED_FOLDER) continue;
 		if (layer->type == layerType::SECTION_DIVIDER) continue;
 
 		std::string spritePath = SplitTokens(GetName(layer), '#')[0];
 		trim(spritePath);
+		std::replace(spritePath.begin(), spritePath.end(), '&', '/');
 
 		vec2 pivot = std::get<0>(pivotsMap[spritePath]);
 		vec2 size = std::get<1>(pivotsMap[spritePath]);

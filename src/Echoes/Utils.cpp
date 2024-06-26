@@ -119,13 +119,14 @@ bool ReadPsdLayers(
 }
 std::string GetName(const psd::Layer* layer) {
 	std::string name(layer->name.c_str());
+	trim(name);
 	return name;
 }
 
 bool IsOrUnderLayer(const psd::Layer* layer, const std::string& ancestorName) {
 	const psd::Layer* itr = layer;
 	while (itr) {
-		if (GetName(itr) == ancestorName) return true;
+		if (tolower(GetName(itr)) == tolower(ancestorName)) return true;
 		itr = itr->parent;
 	}
 	return false;
